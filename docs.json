@@ -1,0 +1,98 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Placematic Developer Hub",
+  "description": "Practical guides for HERE Location Services, routing, geocoding, maps, pricing and enterprise geospatial development.",
+  "colors": {
+    "primary": "#16A34A",
+    "light": "#22C55E",
+    "dark": "#15803D"
+  },
+  "favicon": "/favicon.svg",
+  "logo": {
+    "light": "/logo.svg",
+    "dark": "/logo.svg"
+  },
+  "navbar": {
+    "links": [
+      { "label": "Placematic", "href": "https://placematic.com" },
+      { "label": "Contact", "href": "https://placematic.com/contact/" }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Get HERE API Key",
+      "href": "https://placematic.com/contact/"
+    }
+  },
+  "footer": {
+    "socials": {
+      "linkedin": "https://www.linkedin.com/company/placematic/"
+    }
+  },
+  "navigation": {
+    "groups": [
+      {
+        "group": "Start here",
+        "pages": [
+          "index",
+          "getting-started/what-is-here",
+          "getting-started/get-here-api-key",
+          "getting-started/here-pricing",
+          "getting-started/authentication",
+          "getting-started/choose-the-right-api"
+        ]
+      },
+      {
+        "group": "Guides",
+        "pages": [
+          "guides/routing",
+          "guides/truck-routing",
+          "guides/ev-routing",
+          "guides/matrix-routing",
+          "guides/geocoding",
+          "guides/reverse-geocoding",
+          "guides/maps",
+          "guides/address-validation"
+        ]
+      },
+      {
+        "group": "Use cases",
+        "pages": [
+          "use-cases/fleet-routing",
+          "use-cases/delivery-zones",
+          "use-cases/store-locator",
+          "use-cases/address-validation",
+          "use-cases/territory-management"
+        ]
+      },
+      {
+        "group": "Comparisons",
+        "pages": [
+          "comparisons/here-vs-google-maps",
+          "comparisons/here-vs-mapbox",
+          "comparisons/here-vs-tomtom",
+          "comparisons/google-maps-migration"
+        ]
+      },
+      {
+        "group": "Examples",
+        "pages": [
+          "examples/javascript",
+          "examples/react",
+          "examples/angular",
+          "examples/python",
+          "examples/php"
+        ]
+      },
+      {
+        "group": "FAQ",
+        "pages": [
+          "faq/here-api-key",
+          "faq/here-reseller",
+          "faq/here-pricing",
+          "faq/enterprise-licensing"
+        ]
+      }
+    ]
+  }
+}
