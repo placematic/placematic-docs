@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 980 293"
+     height="35"
+     role="img"
+     aria-label="Placematic API Docs">
+
+  <title>Placematic API Docs</title>
+
+  <style>
+    .pm-logo-dot{
+      fill:var(--accent-2,white);
+    }
+
+    .pm-title{
+      font-family:Arial,Helvetica,sans-serif;
+      font-size:126px;
+      font-weight:700;
+      fill:white;
+      dominant-baseline:middle;
+    }
+
+    .pm-subtitle{
+      font-family:Arial,Helvetica,sans-serif;
+      font-size:92px;
+      font-weight:600;
+      fill:#eee;
+      dominant-baseline:middle;
+    }
+  </style>
+
+  <!-- ===================================================== -->
+  <!-- Original Placematic logo (UNCHANGED)                  -->
+  <!-- ===================================================== -->
+
+  <circle class="pm-logo-dot" cx="120.5" cy="38.0" r="15.8"/>
+  <circle class="pm-logo-dot" cx="24.5"  cy="113.0" r="11.8"/>
+  <circle class="pm-logo-dot" cx="121.0" cy="112.5" r="18.8"/>
+  <circle class="pm-logo-dot" cx="187.5" cy="112.5" r="15.5"/>
+  <circle class="pm-logo-dot" cx="121.0" cy="184.0" r="12.0"/>
+  <circle class="pm-logo-dot" cx="186.5" cy="184.5" r="15.5"/>
+  <circle class="pm-logo-dot" cx="251.0" cy="184.0" r="12.0"/>
+  <circle class="pm-logo-dot" cx="186.0" cy="258.0" r="12.0"/>
+
+  <!-- ===================================================== -->
+  <!-- Text                                                  -->
+  <!-- ===================================================== -->
+
+  <text
+      x="350"
+      y="148"
+      class="pm-title">
+      Placematic
+  </text>
+
+  <text
+      x="1050"
+      y="160"
+      class="pm-subtitle">
+      API Docs
+  </text>
+
+</svg>

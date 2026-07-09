@@ -4,14 +4,14 @@
   "name": "Placematic Developer Hub",
   "description": "Practical guides for HERE Location Services, routing, geocoding, maps, pricing and enterprise geospatial development.",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#22C55E",
-    "dark": "#15803D"
+    "primary": "#6C3FC4",
+    "light": "#6C3FC4",
+    "dark": "#B89CEC"
   },
   "favicon": "/favicon.svg",
   "logo": {
     "light": "/logo.svg",
-    "dark": "/logo.svg"
+    "dark": "/logo_white.svg"
   },
   "navbar": {
     "links": [
