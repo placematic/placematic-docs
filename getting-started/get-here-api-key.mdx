@@ -1,0 +1,205 @@
+---
+title: "Getting a HERE API Key"
+description: "How to get a HERE API key — sandbox vs production, what the free tier actually covers, and the entitlement questions to resolve before you start building."
+---
+
+There are two ways to get a HERE API key: sign up on HERE's developer portal, or get credentials issued through a Gold Partner.
+
+The self-serve path takes minutes and gives you a key against the free tier. The partner path takes one business day and gives you keys scoped to your actual use case, with entitlements confirmed in advance.
+
+Which one you want depends entirely on whether you are exploring or building.
+
+## Why this matters
+
+The free tier is excellent for exploration and dangerous for planning.
+
+Not every HERE API is included in it. Entitlements vary by account type. A team can build a working prototype, present it to leadership, get approval, and only then discover that the specific API their product depends on carries different terms in a production contract.
+
+<Warning>
+**Confirm entitlement before you build, not after.** Truck routing inclusion in the free tier in particular should be verified against your specific account before you scope a pilot around it. Do not assume from documentation that it is available to you.
+</Warning>
+
+The failure mode is not a technical one. It is a schedule and credibility failure — six weeks of engineering committed to an architecture that requires a commercial conversation nobody planned for.
+
+## When should you use each path?
+
+<CardGroup cols={2}>
+  <Card title="Self-serve HERE key" icon="flask">
+    Use when: you are evaluating feasibility, writing a spike, or testing whether an API returns the shape of data you expect. Low commitment, fast, sufficient.
+  </Card>
+  <Card title="Partner-issued keys" icon="building">
+    Use when: you are building something that will ship. You need entitlement certainty, production quotas, contractual pricing, and someone accountable when it breaks.
+  </Card>
+</CardGroup>
+
+Concretely — go partner-issued if any of these apply:
+
+- Your architecture depends on truck routing, tour planning, or matrix operations
+- You need production-volume rate limits, not free-tier throttles
+- Your finance team needs a forecastable line item
+- Your security review requires a data processing agreement
+- You want the migration cost from Google modelled before you commit engineers
+
+## Key concepts
+
+**Sandbox and production keys are separate credentials.** Both are scoped to your account. Sandbox keys let you build against real endpoints with non-production quotas. Never ship a sandbox key.
+
+**API keys authenticate the application, not the user.** They belong in server-side environment variables. See [Authentication](/start-here/authentication) for the full treatment, including when you need OAuth instead.
+
+**Keys are scoped to entitlements.** A key that works for geocoding may return `401` or `403` on tour planning. This is not a bug. It means your account does not include that product.
+
+**Free tier ≠ pilot.** A free tier is a rate-limited product boundary. A pilot is a commercial arrangement scoped to your use case, with the APIs you actually need enabled, and no volume minimum. They are not substitutes.
+
+<Info>
+Through Placematic, pilot access does not auto-convert to a paid contract. If HERE turns out to be the wrong fit for your use case, we say so. That is the point of a scoped pilot rather than a generic sandbox.
+</Info>
+
+## How do I get an API key through Placematic?
+
+Three steps, one business day:
+
+1. **Tell us what you're building.** Not "we need mapping." Specifically: truck routing for an ELD platform, batch geocoding for address normalization, matrix routing for depot optimization. The use case determines which entitlements we enable.
+2. **We scope and issue.** You receive sandbox and production keys, both tied to your account, with the relevant APIs enabled. No direct HERE account is created. No credit card.
+3. **You build.** A solutions engineer is available during the pilot. OpenAPI spec and Postman collection are provided.
+
+No demo call is required to get a key. If you want one, it's twenty minutes.
+
+## Your first authenticated request
+
+Once you have a key, verify entitlement before writing any application code:
+
+<CodeGroup>
+```bash cURL
+curl "https://routes.placematic.com/v8/routes" \
+  -H "x-api-key: $PLACEMATIC_KEY" \
+  -G \
+  --data-urlencode "transportMode=truck" \
+  --data-urlencode "origin=42.0641,-88.0509" \
+  --data-urlencode "destination=41.5250,-88.0817" \
+  --data-urlencode "truck[height]=410" \
+  --data-urlencode "truck[grossWeight]=35000" \
+  --data-urlencode "return=summary"
+```
+
+```python Python
+import os
+import requests
+
+resp = requests.get(
+    "https://routes.placematic.com/v8/routes",
+    headers={"x-api-key": os.environ["PLACEMATIC_KEY"]},
+    params={
+        "transportMode": "truck",
+        "origin": "42.0641,-88.0509",
+        "destination": "41.5250,-88.0817",
+        "truck[height]": 410,
+        "truck[grossWeight]": 35000,
+        "return": "summary",
+    },
+    timeout=10,
+)
+resp.raise_for_status()
+print(resp.json())
+```
+
+```javascript Node.js
+const params = new URLSearchParams({
+  transportMode: "truck",
+  origin: "42.0641,-88.0509",
+  destination: "41.5250,-88.0817",
+  "truck[height]": "410",
+  "truck[grossWeight]": "35000",
+  return: "summary",
+});
+
+const resp = await fetch(
+  `https://routes.placematic.com/v8/routes?${params}`,
+  { headers: { "x-api-key": process.env.PLACEMATIC_KEY } }
+);
+
+if (!resp.ok) throw new Error(`HERE returned ${resp.status}`);
+console.log(await resp.json());
+```
+</CodeGroup>
+
+A `200` means the key is valid *and* entitled for truck routing. A `401` means the key is wrong. A `403` means the key is right and the entitlement is missing. Learn to tell these apart on day one.
+
+## Best practices
+
+- **Verify each API you plan to use, individually, before sprint planning.** One `curl` per endpoint. Ten minutes. It will save you a quarter.
+- **Use separate keys per environment.** Development, staging, production. Never one key across all three — you lose the ability to revoke without an outage.
+- **Store keys in a secret manager.** Not `.env` committed to git. Not a Slack message. Not a Postman collection you share with a contractor.
+- **Restrict keys where the platform allows it.** Domain restrictions for browser-exposed keys, IP allowlists for server keys.
+- **Rotate on personnel change.** Anyone who has read your production key still has it after they leave.
+- **Log the HTTP status, not just the body.** `403` and `429` mean entirely different things and require different responses. See [Authentication](/start-here/authentication).
+
+## Common mistakes
+
+**Shipping the API key to the browser.**
+Any key in frontend JavaScript is public. If it has no domain restriction, it is now someone else's key. Proxy through your backend, or use a restricted key you're willing to have scraped.
+
+**Treating `403` as `401`.**
+Teams add retry logic around `403` and generate support tickets. `403` will never succeed on retry — it is a missing entitlement, not a transient failure.
+
+**Building on free-tier limits.**
+Free bundles are a marketing boundary, not an architectural guarantee. If you exceed them in staging, you will exceed them in production.
+
+**Requesting a key before knowing the use case.**
+"We need HERE" is not scopeable. Which API, what volume, what vehicle class, what geography. Without those, whoever issues the key is guessing at your entitlements.
+
+**Assuming one key covers web and mobile.**
+Web tile API access and mobile SDK access are distinct entitlements. Both are available under a single Placematic contract — but they must be enabled explicitly.
+
+**Committing the Postman collection to a public repo.**
+It contains the key. This happens more than anyone admits.
+
+## FAQ
+
+**How long does it take to get a HERE API key?**
+Self-serve on HERE's portal: minutes. Through Placematic: one business day, with entitlements confirmed for your use case.
+
+**Do I need a credit card?**
+Not through Placematic. No credit card for pilot access, and no automatic conversion to a paid plan.
+
+**Do I need a demo call first?**
+No. You can request keys without one.
+
+**Do I need my own HERE account?**
+No. Placematic USA LLC is the contracting and billing party. You get one invoice from Placematic. HERE does not invoice you.
+
+**Can I test truck routing on the free tier?**
+Confirm this against your specific account before planning around it. Free-tier product inclusion varies and should not be assumed from general documentation.
+
+**Is there a minimum volume commitment?**
+Not for pilot access. Production contracts define volume tiers based on your expected usage, agreed jointly — not imposed as an arbitrary floor.
+
+**Can I use my existing HERE key with Placematic?**
+If you currently license HERE directly, migration to a Gold Partner contract is possible and frequently improves pricing. Bring your current terms and we'll tell you honestly whether we can beat them.
+
+**What's the difference between an API key and an OAuth token?**
+Different auth mechanisms for different APIs and different security postures. Covered in [Authentication](/start-here/authentication).
+
+## Related guides
+
+<CardGroup cols={2}>
+  <Card title="Authentication" href="/start-here/authentication">
+    API keys, OAuth, key rotation, and what each HTTP error code actually means.
+  </Card>
+  <Card title="HERE Pricing Explained" href="/start-here/here-pricing-explained">
+    What happens when the free tier ends.
+  </Card>
+  <Card title="Choosing the Right HERE APIs" href="/start-here/choosing-the-right-here-apis">
+    Decide which entitlements to request before you request them.
+  </Card>
+  <Card title="What is HERE Location Services?" href="/start-here/what-is-here-location-services">
+    The platform overview, if you skipped it.
+  </Card>
+</CardGroup>
+
+Also relevant: [Truck Routing Guide](/guides/truck-routing) · [Migrating from Google Maps](/guides/google-migration)
+
+---
+
+Need production HERE API keys or enterprise licensing?
+
+Placematic is an official HERE Technologies reseller and implementation partner helping companies choose the right HERE APIs, estimate costs, migrate from Google Maps and build production-ready geospatial solutions.

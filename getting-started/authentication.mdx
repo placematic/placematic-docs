@@ -1,0 +1,220 @@
+---
+title: "Authentication"
+description: "How to authenticate against HERE APIs — API keys vs OAuth, key rotation, error codes that matter, and the security mistakes that end up in incident reports."
+---
+
+HERE APIs support two authentication mechanisms: API keys and OAuth 2.0 bearer tokens. Most REST endpoints accept an API key. Some services — and some enterprise contracts — require OAuth.
+
+Through Placematic, you authenticate with an `x-api-key` header. No direct HERE account is created.
+
+## Why this matters
+
+Authentication is where two categories of production incident originate.
+
+The first is a leaked credential. An API key committed to a public repository, embedded in a mobile binary, or pasted into a browser bundle. Someone else's traffic, your invoice.
+
+The second is quieter: **misreading error codes.** `401`, `403`, and `429` are three different failures with three different remedies. Teams that treat them uniformly build retry loops around permanent errors, hammer rate limits into hard blocks, and open support tickets for entitlement problems.
+
+Neither is a hard engineering problem. Both are routine.
+
+## When should you use each mechanism?
+
+<CardGroup cols={2}>
+  <Card title="API key" icon="key">
+    Server-to-server calls, backend services, batch jobs, most REST endpoints. Simple, stateless, and sufficient for the overwhelming majority of integrations.
+  </Card>
+  <Card title="OAuth 2.0" icon="shield-halved">
+    Required for certain services and enterprise contracts. Short-lived tokens, appropriate where credential lifetime is a security requirement, or where an organization mandates token-based access.
+  </Card>
+</CardGroup>
+
+If you don't know which you need, you need an API key. OAuth requirements announce themselves in the endpoint documentation or in a security review, not in general guidance.
+
+## Key concepts
+
+**An API key authenticates the application, not a user.** There is no per-user identity. Access control is your responsibility, in your application layer.
+
+**Keys are scoped to entitlements.** A key valid for geocoding may return `403` on tour planning. That is a licensing boundary, not a bug. See [Getting a HERE API Key](/start-here/getting-a-here-api-key).
+
+**Sandbox and production keys are separate credentials.** Different quotas, same endpoints. Never promote a sandbox key.
+
+**Keys do not expire on their own.** They persist until revoked. This is convenient and it is the reason rotation policy matters.
+
+**OAuth tokens are short-lived.** Obtain a token, cache it until near expiry, refresh. Do not request a new token per API call — you will rate-limit yourself against the token endpoint before you rate-limit against the API.
+
+## How do I authenticate a request?
+
+<CodeGroup>
+```bash cURL
+curl "https://routes.placematic.com/v8/routes" \
+  -H "x-api-key: $PLACEMATIC_KEY" \
+  -G \
+  --data-urlencode "transportMode=truck" \
+  --data-urlencode "origin=42.0641,-88.0509" \
+  --data-urlencode "destination=41.5250,-88.0817" \
+  --data-urlencode "truck[height]=410" \
+  --data-urlencode "return=summary"
+```
+
+```python Python
+import os
+import requests
+
+SESSION = requests.Session()
+SESSION.headers.update({"x-api-key": os.environ["PLACEMATIC_KEY"]})
+
+def route(origin: str, destination: str) -> dict:
+    resp = SESSION.get(
+        "https://routes.placematic.com/v8/routes",
+        params={
+            "transportMode": "truck",
+            "origin": origin,
+            "destination": destination,
+            "truck[height]": 410,
+            "return": "summary",
+        },
+        timeout=10,
+    )
+    if resp.status_code == 403:
+        raise PermissionError("Key valid, entitlement missing — do not retry")
+    if resp.status_code == 429:
+        raise RuntimeError("Rate limited — back off, then retry")
+    resp.raise_for_status()
+    return resp.json()
+```
+
+```javascript Node.js
+const KEY = process.env.PLACEMATIC_KEY;
+
+async function route(origin, destination) {
+  const params = new URLSearchParams({
+    transportMode: "truck",
+    origin,
+    destination,
+    "truck[height]": "410",
+    return: "summary",
+  });
+
+  const resp = await fetch(
+    `https://routes.placematic.com/v8/routes?${params}`,
+    { headers: { "x-api-key": KEY } }
+  );
+
+  if (resp.status === 403) {
+    throw new Error("Entitlement missing — retrying will not help");
+  }
+  if (resp.status === 429) {
+    throw new Error("Rate limited — apply exponential backoff");
+  }
+  if (!resp.ok) throw new Error(`HERE returned ${resp.status}`);
+
+  return resp.json();
+}
+```
+</CodeGroup>
+
+<Warning>
+Never place the key in a query string. URLs are logged by proxies, load balancers, CDNs, and browser history. Use the header.
+</Warning>
+
+## What do the error codes mean?
+
+This table is the most useful thing on this page.
+
+| Status | Meaning | Retry? | What to do |
+|---|---|---|---|
+| `401` | Key missing, malformed, or revoked | No | Check the header name and the secret. Confirm the key wasn't rotated. |
+| `403` | Key valid, entitlement missing | **Never** | You are not licensed for this API. Contact Placematic. Retrying is a support ticket generator. |
+| `429` | Rate limit exceeded | Yes, with backoff | Exponential backoff with jitter. If persistent, your quota is too low for your workload. |
+| `400` | Malformed request | No | Fix the parameters. Often a missing truck constraint or bad coordinate order. |
+| `5xx` | Upstream failure | Yes, with backoff | Transient. Retry with backoff and a circuit breaker. |
+
+<Tip>
+Log the status code alongside the endpoint. `403` on `/tour-planning` and `429` on `/routes` are different conversations — one with your account manager, one with your architect.
+</Tip>
+
+## Best practices
+
+- **Store keys in a secret manager.** AWS Secrets Manager, Vault, GCP Secret Manager. Not `.env` in git. Not Slack. Not a shared Postman collection.
+- **One key per environment.** Development, staging, production. Rotating a compromised dev key should never cause a production outage.
+- **Proxy browser traffic through your backend.** Any key in frontend JavaScript is public. If you must expose one, use a restricted key you're comfortable losing.
+- **Restrict where the platform permits.** Domain restrictions on browser keys, IP allowlists on server keys.
+- **Rotate on a schedule and on personnel change.** Someone who read the production key still has it after they leave.
+- **Support two live keys during rotation.** Issue the new key, deploy, verify, then revoke the old one. Never revoke first.
+- **Cache OAuth tokens.** Refresh near expiry, not per request.
+- **Handle `429` with exponential backoff and jitter.** Fixed-interval retries from a distributed fleet produce a synchronized thundering herd.
+- **Never retry `403`.** It will not succeed. Ever.
+
+## Common mistakes
+
+**Committing the key to version control.**
+Rotate immediately. Git history is not a secret store — removing the file does not remove the commit. Assume the key is compromised.
+
+**Embedding the key in a mobile app binary.**
+Binaries are trivially decompiled. Proxy through your backend.
+
+**Retrying `403` with exponential backoff.**
+Patient, well-engineered, and permanently futile. Read the status code.
+
+**Requesting a fresh OAuth token per call.**
+You will exhaust the token endpoint's rate limit long before the API's.
+
+**Using one key across all environments.**
+A leaked dev key now requires a production rotation. A staging load test now consumes production quota.
+
+**Revoking the old key before deploying the new one.**
+Rotation with an outage attached. Run both keys in parallel until traffic confirms the cutover.
+
+**Treating `429` as a permanent failure.**
+Circuit breakers that open on the first rate-limit response and never reset turn a throttle into an outage.
+
+## FAQ
+
+**Do I need my own HERE account to authenticate?**
+No. Placematic issues keys scoped to your account. Placematic USA LLC is the contracting and billing party.
+
+**API key or OAuth — which should I use?**
+API key, unless a specific endpoint or your security policy requires OAuth. Most integrations never need it.
+
+**Where do I put the key?**
+The `x-api-key` request header. Not the query string.
+
+**Can I use one key for sandbox and production?**
+No. They are separate credentials with separate quotas.
+
+**What do I do if a key leaks?**
+Rotate immediately. Issue a new key, deploy, verify traffic, revoke the old one. Then audit git history and any shared collections.
+
+**How do I rotate without downtime?**
+Run two valid keys simultaneously. Deploy the new one, confirm traffic has moved, then revoke.
+
+**Why am I getting `403` on an endpoint that works elsewhere?**
+Entitlement. Your account is not licensed for that API. This is a commercial conversation, not a technical one.
+
+**Do API keys expire?**
+Not automatically. They persist until revoked — which is precisely why you should have a rotation policy.
+
+## Related guides
+
+<CardGroup cols={2}>
+  <Card title="Getting a HERE API Key" href="/start-here/getting-a-here-api-key">
+    Sandbox vs production keys and confirming entitlements.
+  </Card>
+  <Card title="Choosing the Right HERE APIs" href="/start-here/choosing-the-right-here-apis">
+    Which entitlements to request before you hit your first `403`.
+  </Card>
+  <Card title="HERE Pricing Explained" href="/start-here/here-pricing-explained">
+    Rate limits and quotas are a commercial parameter, not just a technical one.
+  </Card>
+  <Card title="What is HERE Location Services?" href="/start-here/what-is-here-location-services">
+    Platform overview.
+  </Card>
+</CardGroup>
+
+Also relevant: [Truck Routing Guide](/guides/truck-routing) · [Distance Matrix](/guides/distance-matrix)
+
+---
+
+Need production HERE API keys or enterprise licensing?
+
+Placematic is an official HERE Technologies reseller and implementation partner helping companies choose the right HERE APIs, estimate costs, migrate from Google Maps and build production-ready geospatial solutions.

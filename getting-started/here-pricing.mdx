@@ -1,0 +1,181 @@
+---
+title: "HERE Pricing Explained"
+description: "How HERE API pricing actually works — call volume vs asset-based models, where costs diverge from Google Maps, and how to model your real bill before you commit."
+---
+
+HERE pricing is usage-based, product-specific, and dependent on three variables: which APIs you call, how many times, and whether you buy direct or through a partner.
+
+That third variable moves the number more than most teams expect.
+
+There is no flat monthly fee. There is no single price list that answers "what will HERE cost us." Anyone who gives you a number without asking about your call mix is guessing.
+
+## Why this matters
+
+Most cost comparisons between mapping platforms are done wrong. A team pulls up two per-1,000-request rates, sees they're close, and concludes the platforms are priced similarly.
+
+At entry level, they are. HERE Routing via Placematic starts at **$2.92 per 1,000 requests** above the free tier. TomTom lists €2.50. Google is in the same neighbourhood. If you stop there, you learn nothing.
+
+The divergence appears in four places:
+
+- **Volume tiers.** Rates drop meaningfully as volume rises. Routing sees the steepest curve.
+- **Matrix operations.** One matrix call versus N×M sequential routing calls is a different order of magnitude, not a different rate.
+- **Batch endpoints.** Asynchronous geocoding is materially cheaper per record than the real-time endpoint. Most teams pay real-time rates for overnight work.
+- **Free bundles.** Each API has its own. They don't pool.
+
+At production volume, teams migrating from Google Maps typically see **40–70% savings**. Geocoding-heavy workloads see **80%+**. Those are the honest ranges — not a headline number.
+
+<Warning>
+Do not model your HERE bill from your Google bill. The meters do not map one to one. Google charges per session in places where HERE charges per request, and vice versa. Instrument your actual per-endpoint call counts first.
+</Warning>
+
+## What are the two pricing models?
+
+<CardGroup cols={2}>
+  <Card title="Call volume pricing" icon="chart-line">
+    Priced per API call. Costs scale with usage. Best for SaaS platforms embedding HERE APIs into a product, where call volume tracks customer count.
+  </Card>
+  <Card title="Asset-based pricing" icon="truck">
+    Priced per tracked asset per month. Costs scale with fleet size, not API chatter. Best for fleet operators tracking a known number of vehicles.
+  </Card>
+</CardGroup>
+
+The choice is not cosmetic. A dispatcher who reroutes a 200-truck fleet forty times a day generates enormous call volume against a stable asset count. Under call-volume pricing that team pays for operational diligence. Under asset-based pricing they don't.
+
+Inversely, a SaaS platform with 10,000 end customers making one geocode each does not want to be billed per "asset."
+
+**Rule of thumb:** if you can count your vehicles and can't predict your calls, go asset-based. If you can predict your calls and don't own vehicles, go call volume.
+
+<Info>
+Asset-based pricing availability depends on your contract tier. If your model depends on it, confirm availability for your specific tier before you build a business case on it.
+</Info>
+
+## Base Plan vs Enterprise Plan
+
+**Base Plan** — transaction-based billing with free monthly bundles. Suitable for teams starting out or with genuinely variable usage. You pay only above the bundle.
+
+**Enterprise Plan** — cost certainty through volume-based and asset-based pricing. Includes fleet optimization SDK, HERE Navigate SDK, and offline maps. Suitable for commercial fleet operators and large-scale deployments.
+
+The jump between them is not primarily about price per call. It is about what you're entitled to. Offline maps and the Navigate SDK are not purchasable as Base Plan add-ons.
+
+## When should you buy through a reseller?
+
+The honest answer: it depends on your volume and your tolerance for procurement.
+
+**Buy direct if** you are a large enterprise with a dedicated vendor management function, you can meet minimum volume commitments comfortably, and you want the vendor relationship in-house.
+
+**Buy through a Gold Partner if** any of the following apply:
+
+- You want partner pricing tiers, which are not available to direct customers at standard volume levels
+- You don't want to negotiate minimum volume commitments
+- You want one contract, one invoice, and one accountable party for the integration working — not just for the API being up
+- You want the entitlement and licensing questions resolved before your sprint starts
+- You want implementation support included rather than billed separately
+
+Placematic USA LLC is the contracting and billing party. You never receive a HERE invoice. You never negotiate with HERE.
+
+If you are currently licensing HERE directly and want to compare — bring your current pricing. We will tell you honestly whether we can improve it. Sometimes the answer is no.
+
+## Key concepts
+
+**Every API is a separate meter.** Routing, geocoding, tiles, matrix, tour planning. No bundling. Forecast each independently.
+
+**Free bundles are per-API and do not pool.** Exhausting your routing bundle does not consume your geocoding bundle, and unused geocoding does not subsidize routing.
+
+**Tiles are billed per request or per session, depending on implementation.** Web SDK, mobile SDK, and static maps bill differently for what looks like the same map. Know which one you shipped.
+
+**Fleet Optimization and Tour Planning are enterprise-tier, typically on a committed plan.** They are purpose-built for multi-stop optimization. Approximating them with routing calls costs more and produces worse routes.
+
+**Contract length affects rate.** Longer commitments buy lower per-call pricing. Through a partner, contracted pricing does not reprice mid-term.
+
+## How do I estimate my costs?
+
+Model it in this order. Skipping steps produces a number you cannot defend.
+
+1. **Instrument.** Count actual calls per endpoint per month in your current system. Not estimates. Logs.
+2. **Classify by latency tolerance.** Which calls must be real-time? Which could run as an overnight batch? This alone often moves the bill 30%+.
+3. **Identify cacheable calls.** Geocoding the same customer address on every order is pure waste. Addresses are stable.
+4. **Separate matrix work from routing work.** If you compute distances between many origins and destinations, you have a matrix workload, whichever API you currently use.
+5. **Model both commercial models.** Run your numbers under call-volume and asset-based. Pick the one that survives your worst month.
+6. **Then compare vendors.** Not before.
+
+The [cost calculator](https://placematic.com/tools/calculator) gives you a range based on volume, API type, and contract length. It is a range, not a quote. For an exact figure tied to your call mix, ask.
+
+## Best practices
+
+- **Cache geocoding results aggressively.** The single highest-leverage cost reduction available. Addresses do not move.
+- **Batch anything that tolerates latency.** Nightly normalization, historical backfills, bulk imports.
+- **Set `return` explicitly on routing calls.** Do not fetch full turn-by-turn instructions when you need a duration.
+- **Alert on per-endpoint call rate, not just total spend.** A runaway retry loop is visible in call rate hours before it's visible on an invoice.
+- **Re-forecast quarterly.** Usage patterns drift. So do your customers.
+- **Ask what happens at 3× volume before you sign.** Growth should reduce your unit cost, not surprise you.
+
+## Common mistakes
+
+**Comparing list prices instead of workload cost.**
+Entry-level rates are close across vendors. Your bill is determined by call mix, tier placement, and whether you batched.
+
+**Paying real-time rates for batch work.**
+Nightly address normalization does not need sub-100ms latency. It needs to be cheap.
+
+**Building tour planning on the routing API.**
+N routing calls to approximate multi-stop optimization is slower, more expensive, and produces inferior routes than the product designed for it.
+
+**Ignoring the free bundle in your model, in both directions.**
+Some teams forget it exists and overestimate. Others assume it scales and underestimate badly.
+
+**Assuming asset-based pricing is available.**
+It depends on tier. Confirm before it becomes load-bearing in a business case presented to your CFO.
+
+**Not modelling the migration cost.**
+Engineering time to migrate is a real line item. If the payback period exceeds eighteen months, the savings argument is weaker than it looks. Say so out loud.
+
+## FAQ
+
+**How much does HERE cost?**
+It depends on which APIs, at what volume, on what contract length, bought through whom. HERE Routing via Placematic starts at $2.92 per 1,000 requests above the free tier. That is a starting rate, not a forecast.
+
+**Is HERE cheaper than Google Maps?**
+At production volume, usually — typically 40–70% lower, and 80%+ on geocoding-heavy workloads. At low volume, the difference is negligible and not worth a migration.
+
+**Is Placematic's pricing better than going to HERE directly?**
+As a Gold Partner, Placematic accesses pricing tiers not available to direct customers at standard volume levels. You also avoid procurement overhead and minimum volume commitments. Bring your current HERE pricing and we'll tell you honestly whether we can improve it.
+
+**Who invoices me?**
+Placematic USA LLC, exclusively. One invoice covering all HERE services you use. HERE does not invoice you.
+
+**Is there a minimum volume commitment?**
+Not for pilot access. Production contracts define volume tiers jointly based on expected usage.
+
+**Does the pilot auto-convert to a paid contract?**
+No. If HERE fits, we scope production together. If it doesn't, we tell you.
+
+**What is a "transaction"?**
+One billable API call. Definitions vary by product — a tile request, a route calculation, a geocode. Confirm the unit per API before forecasting.
+
+**How accurate is the cost calculator?**
+It produces a range using Gold Partner pricing as a baseline. It is a planning tool, not a quote.
+
+## Related guides
+
+<CardGroup cols={2}>
+  <Card title="Choosing the Right HERE APIs" href="/start-here/choosing-the-right-here-apis">
+    Cost forecasting starts with knowing which APIs you actually need.
+  </Card>
+  <Card title="HERE vs Google Maps" href="/start-here/here-vs-google-maps">
+    Where the cost gap comes from, and where it doesn't exist.
+  </Card>
+  <Card title="Getting a HERE API Key" href="/start-here/getting-a-here-api-key">
+    Free tier boundaries and entitlement confirmation.
+  </Card>
+  <Card title="Migrating from Google Maps" href="/guides/google-migration">
+    Modelling migration cost against projected savings.
+  </Card>
+</CardGroup>
+
+Also relevant: [Distance Matrix](/guides/distance-matrix) · [Truck Routing Guide](/guides/truck-routing) · [Batch Geocoding](/guides/batch-geocoding)
+
+---
+
+Need production HERE API keys or enterprise licensing?
+
+Placematic is an official HERE Technologies reseller and implementation partner helping companies choose the right HERE APIs, estimate costs, migrate from Google Maps and build production-ready geospatial solutions.

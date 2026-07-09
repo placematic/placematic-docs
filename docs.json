@@ -21,7 +21,7 @@
     "primary": {
       "type": "button",
       "label": "Get HERE API Key",
-      "href": "https://placematic.com/contact/"
+      "href": "https://placematic.com/start-trial/"
     }
   },
   "footer": {
@@ -35,7 +35,7 @@
         "group": "Start here",
         "pages": [
           "index",
-          "getting-started/what-is-here",
+          "getting-started/what-is-here-location-services",
           "getting-started/get-here-api-key",
           "getting-started/here-pricing",
           "getting-started/authentication",

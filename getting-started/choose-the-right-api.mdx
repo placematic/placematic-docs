@@ -1,0 +1,181 @@
+---
+title: "Choosing the Right HERE APIs"
+description: "A decision guide for selecting HERE APIs by use case — routing vs matrix vs tour planning, real-time vs batch geocoding, and the expensive mistakes teams make choosing wrong."
+---
+
+Choosing HERE APIs by product name leads teams to the wrong product. Choose by the question your system needs answered.
+
+"How long is the drive from A to B?" and "What is the drive time between these 200 depots and these 3,000 stops?" look like the same question. They are not the same product, they are not the same price, and building the second out of the first is one of the most expensive architectural mistakes in this domain.
+
+## Why this matters
+
+The cost of choosing the wrong API is not a slightly higher invoice. It's an architecture you have to unwind.
+
+A team approximates multi-stop optimization with N routing calls. It works at 5 stops. At 40 stops it takes ninety seconds, costs eight times what tour planning would, and produces routes a human dispatcher would reject. By the time this is obvious, it's load-bearing.
+
+A team routes trucks with the car engine because the response shape was familiar. Everything looks fine in QA — QA doesn't drive under bridges.
+
+<Info>
+The most expensive API decisions are made in week one, by engineers optimizing for the fastest path to a green test, and discovered in month six by operations.
+</Info>
+
+## How do I choose the right HERE API?
+
+Answer these in order. Stop at the first match.
+
+**1. Are you moving a vehicle from A to B?**
+→ **Routing API.** If the vehicle is a truck, van over 3.5t, hazmat carrier, or oversized load, use `transportMode=truck` **with** the physical constraints. See [Truck Routing Guide](/guides/truck-routing).
+
+**2. Do you need travel times between many origins and many destinations?**
+→ **Distance Matrix API.** Not N routing calls. One request. This is the highest-leverage correct choice on this page.
+
+**3. Do you need to visit many stops in an optimal order, with constraints?**
+→ **Tour Planning API.** Time windows, vehicle capacity, driver shifts, skills. This is a solver, not a router. Enterprise tier, typically committed plan.
+
+**4. Do you need to convert an address to coordinates?**
+→ **Geocoding API** for real-time, one at a time. **Batch Geocoding** for anything that tolerates latency. If you are geocoding a file, you want batch. See [HERE Pricing Explained](/start-here/here-pricing-explained).
+
+**5. Coordinates back to an address?**
+→ **Reverse Geocoding API.** Common in telematics — turning a GPS ping into a human-readable location.
+
+**6. Type-ahead address entry in a UI?**
+→ **Autocomplete / Search API.** Be candid about whether Google's POI database is better for your users. For street addresses, HERE is strong. For "coffee shop near me," it is not.
+
+**7. Do you need to display a map?**
+→ **Digital Maps / tiles.** Works with Leaflet, OpenLayers, MapLibre GL, and the HERE Maps SDK. Web tiles and mobile SDK are separate entitlements.
+
+**8. Do you need to match a raw GPS trace to the road network?**
+→ **Route Matching API.** Turning noisy probe data into travelled road segments. Essential for ELD, IFTA reporting, and anything auditing where a vehicle actually went.
+
+**9. Do you need EV range and charging stops in the route?**
+→ **EV Routing.** Consumption model, current charge state, charging stops as routing outputs. Not a filter on top of car routing.
+
+**10. Do you need location where GPS is unreliable?**
+→ **Positioning API.** Hybrid GPS/Wi-Fi/cellular. Warehouses, urban canyons, indoors. Most teams never need this.
+
+## Routing vs Matrix vs Tour Planning
+
+This distinction earns its own section because getting it wrong is expensive.
+
+| | Routing | Distance Matrix | Tour Planning |
+|---|---|---|---|
+| **Question** | How do I get from A to B? | What are the times between all these points? | What order should I visit these stops? |
+| **Input** | Origin, destination, waypoints | N origins, M destinations | Stops, vehicles, constraints |
+| **Output** | A path | A matrix of times/distances | An optimized itinerary |
+| **Calls** | 1 per route | 1 per matrix | 1 per optimization |
+| **Wrong use** | Building a matrix from it | Building an itinerary from it | Using it for A→B |
+| **Tier** | Standard | Standard | Enterprise / committed |
+
+<Warning>
+**If you find yourself writing a loop around the Routing API, stop.** You are either building a matrix (use Distance Matrix) or building an optimizer (use Tour Planning). Both exist. Both are cheaper than your loop.
+</Warning>
+
+Matrix operations support large origin-destination sets in a single call, with different limits depending on whether you call synchronously or asynchronously. Check the current limits in the [official HERE documentation](https://www.here.com/docs) before you architect around a specific ceiling — and confirm which mode your entitlement covers.
+
+## Real-time vs batch geocoding
+
+Same data, different product, materially different price.
+
+**Use real-time geocoding when** a user is waiting. Address entry at checkout. Dispatcher looking up a customer.
+
+**Use batch geocoding when** nothing is waiting. Nightly address normalization. Backfilling a customer table. Importing a partner's location file.
+
+The tell: if the result is written to a database rather than rendered to a screen, it should have been batched.
+
+**And cache either way.** Addresses do not move. Re-geocoding the same customer address on every order is the most common avoidable cost in this entire platform.
+
+## Key concepts
+
+**Transport mode selects an engine, not a speed profile.** `truck` changes traversable segments and legal turns. It is not `car` with a penalty applied.
+
+**Constraints are inputs, not filters.** Height, gross weight, axle count, hazmat class. Omit them and the truck engine assumes an unconstrained vehicle. No warning is issued.
+
+**Entitlements are per-API.** Requesting the right API means little if your key isn't licensed for it. You will discover this as a `403`. See [Authentication](/start-here/authentication).
+
+**Batch is asynchronous.** Submit, poll, retrieve. Design for it rather than wrapping it in a synchronous facade with a timeout.
+
+**You do not have to choose one vendor for everything.** Keep Google for consumer place search, move routing and batch geocoding to HERE. This is a common and defensible architecture.
+
+## Best practices
+
+- **Write down the question before you pick the product.** One sentence per integration point. This step catches most wrong choices for free.
+- **Prototype against the exact API you will ship.** Not the adjacent one with the friendlier response shape.
+- **Test truck routing on known trap geometry.** The 11foot8 bridge in Durham NC. Storrow Drive in Boston. The Southern State Parkway on Long Island. If your integration routes a 4.1m vehicle through any of these, your constraints aren't applied.
+- **Confirm entitlements before sprint planning.** One `curl` per intended endpoint. Ten minutes.
+- **Separate what needs latency from what needs to be cheap.** Then route each to the right product.
+- **Cache geocoding results in your own datastore.** Not in a request-scoped memo.
+- **Reconsider quarterly.** Products you dismissed at 10k calls/month may be obvious at 500k.
+
+## Common mistakes
+
+**Looping the Routing API to build a distance matrix.**
+Slower, more expensive, more failure surface. Distance Matrix exists.
+
+**Looping the Routing API to build an optimized tour.**
+Worse routes than the solver, at higher cost. Tour Planning exists.
+
+**Using car routing for commercial vehicles.**
+The response is well-formed. The route is unsafe.
+
+**Using real-time geocoding for batch workloads.**
+Paying for latency you are throwing away.
+
+**Choosing Autocomplete because it's cheaper than Google, when the use case is POI discovery.**
+Your users will notice. Cost savings on a feature people stop using is not savings.
+
+**Approximating Route Matching with nearest-road lookups.**
+Fine until an auditor asks which road segment the vehicle actually travelled.
+
+**Migrating every API at once.**
+Two systems, two failure surfaces, one incident with no clear cause. Migrate one. Stabilize. Then the next.
+
+## FAQ
+
+**Which HERE API should I use for truck routing?**
+Routing API with `transportMode=truck` and explicit physical constraints. Both parts are required. See [Truck Routing Guide](/guides/truck-routing).
+
+**What is the difference between Routing and Distance Matrix?**
+Routing returns a path between two points. Distance Matrix returns times and distances across many origin-destination pairs in one call. If you're looping routing calls, you want matrix.
+
+**When do I need Tour Planning instead of Distance Matrix?**
+When you need an ordered itinerary respecting constraints — time windows, vehicle capacity, driver hours — not just a table of travel times.
+
+**Is HERE Autocomplete as good as Google Places?**
+For street addresses, competitive. For business POIs, reviews, and hours, no. Choose per use case, not per vendor.
+
+**Can I mix HERE and Google in one product?**
+Yes, and many teams should. Google for consumer place search, HERE for routing and batch geocoding is a sensible split.
+
+**Do I need the mobile SDK or will the tile API do?**
+Tiles for web. SDK for native turn-by-turn, offline maps, or on-device rendering. Separate entitlements, both available under one Placematic contract.
+
+**How do I know if my key covers an API?**
+Call it. `200` means entitled. `403` means licensed elsewhere, not here. See [Authentication](/start-here/authentication).
+
+**Where do I find full parameter documentation?**
+The [official HERE documentation](https://www.here.com/docs). These guides cover implementation judgement, not parameter reference — we don't duplicate what HERE maintains well.
+
+## Related guides
+
+<CardGroup cols={2}>
+  <Card title="Truck Routing Guide" href="/guides/truck-routing">
+    Constraints, trap geometry, and validating that your routes are drivable.
+  </Card>
+  <Card title="Distance Matrix" href="/guides/distance-matrix">
+    When one call replaces ten thousand.
+  </Card>
+  <Card title="HERE Pricing Explained" href="/start-here/here-pricing-explained">
+    Choosing the right API is the largest cost lever you have.
+  </Card>
+  <Card title="HERE vs Google Maps" href="/start-here/here-vs-google-maps">
+    Per-API comparison, including where Google wins.
+  </Card>
+</CardGroup>
+
+Also relevant: [Authentication](/start-here/authentication) · [Batch Geocoding](/guides/batch-geocoding) · [Migrating from Google Maps](/guides/google-migration)
+
+---
+
+Need production HERE API keys or enterprise licensing?
+
+Placematic is an official HERE Technologies reseller and implementation partner helping companies choose the right HERE APIs, estimate costs, migrate from Google Maps and build production-ready geospatial solutions.
