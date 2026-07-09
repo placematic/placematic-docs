@@ -1,0 +1,179 @@
+---
+title: "HERE vs Google Maps – Which Platform Should You Choose?"
+description: "An honest comparison of HERE Location Services and Google Maps Platform — where each genuinely wins, what migration actually costs, and when you should not switch."
+---
+
+Choose Google Maps if your product answers questions about *places*. Choose HERE if your product answers questions about *movement* — particularly the movement of commercial vehicles.
+
+Most teams evaluating this comparison are looking at their Google invoice. That's a legitimate trigger. It is not, by itself, a sufficient reason.
+
+## Why this matters
+
+Migration is real engineering work. Response schemas differ. Coordinate ordering differs. The tile aesthetic differs, and your designers will file a ticket about it. Frontend code coupled to `google.maps.*` does not port.
+
+If your Google bill is $400/month, the payback period on that work is measured in years. Do something else.
+
+If your Google bill is $40,000/month and half of it is geocoding you should have cached and batched — that's a different conversation, and the savings are typically **40–70%**, reaching **80%+** on geocoding-heavy workloads.
+
+<Warning>
+Model migration engineering cost against projected savings before you present a business case. A payback period beyond eighteen months means the argument is weaker than the headline number suggests. Say so before someone else does.
+</Warning>
+
+## Where does HERE genuinely win?
+
+**Commercial vehicle routing.** This is not a close comparison. Truck constraints — height, gross weight, axle count, trailer count, tunnel category, hazmat class — are first-class routing inputs, not post-hoc filters. Google Maps Platform does not offer equivalent depth for commercial vehicles.
+
+**Large origin-destination matrices.** HERE handles large matrices in a single call. Depot-to-stop optimization across a real fleet is one request, not a nested loop.
+
+**Cost at production volume.** The divergence appears above roughly 100k calls/month and widens. Routing sees the steepest curve. Geocoding-heavy workloads see the largest gap.
+
+**Contractual price stability.** HERE pricing through a Gold Partner is contractual. It does not reprice mid-term. Teams who lived through Google's 2018 and 2025 pricing changes weight this heavily, and they are right to.
+
+**Transport-specific map layers.** Weight restrictions, height limits, hazmat routing attributes, and truck-relevant POIs built into the base data.
+
+**EV routing with charge-state awareness.** Range, consumption curve, and charging stops as routing inputs — not as a separate lookup you stitch together.
+
+## Where does Google genuinely win?
+
+Any comparison that omits this section is marketing.
+
+**Places and POI data.** Google's business database — hours, reviews, photos, categories, closures — is categorically better. This is not close either.
+
+**Consumer autocomplete.** For "coffee shop near me," Google's ranking, aliasing, and typo tolerance reflect enormous consumer query volume that HERE does not have.
+
+**Street View.** HERE has no equivalent product.
+
+**Ecosystem and hiring.** More engineers have shipped Google Maps integrations. More Stack Overflow answers exist. This is a real cost consideration, not a soft one.
+
+**Low-volume simplicity.** Under ~10k calls/month, both are effectively free. Google's onboarding is faster.
+
+<Info>
+**The best architecture for many products is both.** Google for consumer-facing place search and autocomplete. HERE for routing, matrix operations, and batch geocoding. Nothing requires vendor monogamy, and the split follows the strengths cleanly.
+</Info>
+
+## Side by side
+
+| | HERE | Google Maps Platform |
+|---|---|---|
+| **Truck routing** | Physical constraints as first-class inputs | No equivalent depth |
+| **Large matrices** | Single-call, large origin/destination sets | Smaller ceilings; more calls |
+| **POI / business data** | Adequate | Best in class |
+| **Consumer autocomplete** | Adequate for addresses | Best in class |
+| **Street View** | None | Yes |
+| **Cost at low volume** | Comparable | Comparable |
+| **Cost at production volume** | Typically 40–70% lower | Baseline |
+| **Price stability** | Contractual via partner | Has repriced historically |
+| **Ecosystem familiarity** | Narrower | Very broad |
+| **EV routing** | Charge-state aware | Limited |
+| **GPS trace matching** | Route Matching API | No equivalent |
+
+## When should you migrate?
+
+Migrate if two or more of these are true:
+
+- You route commercial vehicles and are currently using car routing
+- Your monthly spend exceeds five figures and is dominated by routing or geocoding
+- You compute large distance matrices with sequential calls
+- Price volatility from your current vendor is a board-level concern
+- You need truck-attributed map data, and are currently approximating it
+
+Do **not** migrate if:
+
+- Your spend is under ~$1,000/month. Optimize your call patterns instead — cache geocoding, batch what tolerates latency. You will likely halve the bill without changing vendors.
+- Your product's core value is consumer place discovery
+- Your team has no engineering capacity this quarter. A half-finished migration is worse than either endpoint.
+- The only argument is "cheaper." Cheaper on a feature that regresses is not cheaper.
+
+## Key concepts
+
+**The meters do not map one to one.** Google bills per session where HERE bills per request, and the reverse. You cannot derive a HERE forecast from a Google invoice. Instrument per-endpoint call counts first.
+
+**Coordinate order and response schemas differ.** Budget for it. It's mechanical work, not hard work, but it isn't zero.
+
+**Migrate incrementally.** Geocoding first — it's the smallest surface, and usually the largest saving. Then routing. Never both at once.
+
+**Half your savings may not require migration at all.** Caching geocoding results and moving batch work off real-time endpoints reduces spend on *any* platform. Do this before you migrate; it also gives you a clean baseline to measure against.
+
+## Best practices
+
+- **Instrument before you evaluate.** Per-endpoint call counts, per month, from logs. Not estimates.
+- **Optimize on Google first.** Cache, batch, drop unnecessary `return` fields. Then re-measure. The remaining bill is your real migration case.
+- **Run a scoped pilot on the single highest-cost endpoint.** Prove the savings and the quality on one surface before committing the roadmap.
+- **Validate quality, not just cost.** Route the same 500 real trips through both platforms. Compare against ground truth, not against each other.
+- **Test truck routing against trap geometry.** 11foot8 bridge (Durham NC), Storrow Drive (Boston), Southern State Parkway (Long Island). Any platform that routes a 4.1m vehicle through these fails.
+- **Keep both live during cutover.** Feature-flag by endpoint. Shadow-write. Compare.
+- **Be explicit about where you're keeping Google.** A hybrid architecture is a decision, not an admission.
+
+## Common mistakes
+
+**Comparing per-1,000 list prices.**
+Entry-level rates are close. Your bill is determined by call mix, volume tier, batching, and free bundles. Comparing rate cards teaches you nothing.
+
+**Migrating everything simultaneously.**
+Two independent systems change, one incident occurs, root cause is ambiguous. Migrate one surface, stabilize, proceed.
+
+**Migrating before optimizing.**
+You may be migrating waste. Cache and batch first, then measure what remains.
+
+**Underestimating frontend coupling.**
+`google.maps.*` in your React components is not a config change.
+
+**Assuming HERE POI data will satisfy a consumer search feature.**
+It will not. Keep Google for that surface, and say so up front.
+
+**Presenting savings without migration cost.**
+Your CFO will ask. Answer before they do.
+
+**Treating tile styling as cosmetic.**
+It is, until the product review. Show the maps to design early.
+
+## FAQ
+
+**Is HERE cheaper than Google Maps?**
+At production volume, typically 40–70% lower, and 80%+ on geocoding-heavy workloads. At low volume, the difference is negligible.
+
+**Is HERE data as good as Google's?**
+For road networks, truck attributes, and traffic — yes, and better on commercial vehicle attribution. For business POIs, reviews, and photos — no.
+
+**Can I use HERE tiles with my existing frontend?**
+If you use Leaflet, OpenLayers, or MapLibre GL, largely a tile URL swap. If you're on the Google Maps JS SDK, it's a rewrite of that layer.
+
+**How long does a migration take?**
+Geocoding alone: often a sprint. Routing with truck constraints and quality validation: meaningfully longer. Full migration including frontend: scope it properly.
+
+**Should I migrate everything?**
+Usually not. Routing and batch geocoding to HERE, consumer place search stays on Google, is a common and sensible endpoint.
+
+**What about TomTom, Mapbox, or OSRM?**
+TomTom is competitive in automotive and European markets, with narrower truck constraints and smaller matrix ceilings. Mapbox is strong on styling, weak on commercial vehicle depth. OSRM is free and yours to operate — which means truck attributes, traffic, and map freshness are also yours to operate.
+
+**Does Google offer truck routing?**
+Not with comparable constraint depth. If you route commercial vehicles, this is the decision.
+
+**Will HERE reprice on me?**
+Contracted pricing through a Gold Partner does not reprice mid-term.
+
+## Related guides
+
+<CardGroup cols={2}>
+  <Card title="Migrating from Google Maps" href="/guides/google-migration">
+    Endpoint mapping, sequencing, and how to validate quality during cutover.
+  </Card>
+  <Card title="HERE Pricing Explained" href="/start-here/here-pricing-explained">
+    Model your bill properly before you build the business case.
+  </Card>
+  <Card title="Truck Routing Guide" href="/guides/truck-routing">
+    The capability gap, in detail.
+  </Card>
+  <Card title="Choosing the Right HERE APIs" href="/start-here/choosing-the-right-here-apis">
+    Migrate to the correct API, not the closest-looking one.
+  </Card>
+</CardGroup>
+
+Also relevant: [What is HERE Location Services?](/start-here/what-is-here-location-services) · [Getting a HERE API Key](/start-here/getting-a-here-api-key) · [Distance Matrix](/guides/distance-matrix)
+
+---
+
+Need production HERE API keys or enterprise licensing?
+
+Placematic is an official HERE Technologies reseller and implementation partner helping companies choose the right HERE APIs, estimate costs, migrate from Google Maps and build production-ready geospatial solutions.

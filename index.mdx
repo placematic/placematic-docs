@@ -1,46 +1,126 @@
 ---
-title: Placematic Developer Hub
-description: Practical guides for HERE Location Services, routing, geocoding, maps, pricing and enterprise geospatial development.
+title: "Placematic Developer Hub"
+description: "Implementation guidance for HERE Location Services — choosing APIs, forecasting costs, migrating from Google Maps, and shipping routing systems that survive production."
 ---
 
-# Placematic Developer Hub
+# HERE Location Services, implemented
 
-Practical guides for building location-aware applications with HERE Location Services.
+Placematic is an official HERE reseller and Gold Partner. We issue production API keys, hold the contract, and write the guidance below from systems we have shipped since 2016.
 
-Placematic helps companies use HERE APIs in real business systems: routing, geocoding, maps, matrix calculations, EV routing, address validation and enterprise geospatial workflows.
+Start with a request that returns `200`.
+
+<CodeGroup>
+```bash cURL
+curl "https://routes.placematic.com/v8/routes" \
+  -H "x-api-key: $PLACEMATIC_KEY" \
+  -G \
+  --data-urlencode "transportMode=truck" \
+  --data-urlencode "origin=42.0641,-88.0509" \
+  --data-urlencode "destination=41.5250,-88.0817" \
+  --data-urlencode "truck[height]=410" \
+  --data-urlencode "truck[grossWeight]=35000" \
+  --data-urlencode "return=summary"
+```
+
+```python Python
+import os, requests
+
+resp = requests.get(
+    "https://routes.placematic.com/v8/routes",
+    headers={"x-api-key": os.environ["PLACEMATIC_KEY"]},
+    params={
+        "transportMode": "truck",
+        "origin": "42.0641,-88.0509",
+        "destination": "41.5250,-88.0817",
+        "truck[height]": 410,
+        "truck[grossWeight]": 35000,
+        "return": "summary",
+    },
+    timeout=10,
+)
+resp.raise_for_status()
+print(resp.json()["routes"][0]["sections"][0]["summary"])
+```
+
+```javascript Node.js
+const params = new URLSearchParams({
+  transportMode: "truck",
+  origin: "42.0641,-88.0509",
+  destination: "41.5250,-88.0817",
+  "truck[height]": "410",
+  "truck[grossWeight]": "35000",
+  return: "summary",
+});
+
+const resp = await fetch(
+  `https://routes.placematic.com/v8/routes?${params}`,
+  { headers: { "x-api-key": process.env.PLACEMATIC_KEY } }
+);
+if (!resp.ok) throw new Error(`HERE returned ${resp.status}`);
+console.log(await resp.json());
+```
+</CodeGroup>
+
+<Info>
+No key yet? [Request one](https://placematic.com/start-trial/) — issued within one business day, no credit card, no demo call. Placematic USA LLC is the contracting party. You never open a HERE account.
+</Info>
+
+## Start here
 
 <CardGroup cols={2}>
-  <Card title="Get a HERE API key" icon="key" href="/getting-started/get-here-api-key">
-    Learn how to get production-ready HERE API access and when to work with a reseller.
+  <Card title="Getting Started" icon="play" href="/start-here/what-is-here-location-services">
+    Platform overview, API keys, authentication, and how HERE pricing actually works.
   </Card>
-
-  <Card title="Understand HERE pricing" icon="dollar-sign" href="/getting-started/here-pricing">
-    Learn what affects HERE API costs and how to estimate usage before production.
+  <Card title="Guides" icon="book-open" href="/guides">
+    Truck routing, distance matrices, batch geocoding, and migrating off Google Maps.
   </Card>
-
-  <Card title="Routing guides" icon="route" href="/guides/routing">
-    Build routing, truck routing, EV routing and matrix-based applications.
+  <Card title="Use Cases" icon="truck" href="/use-cases">
+    Reference architectures for fleet and ELD platforms, delivery zones, and retail networks.
   </Card>
-
-  <Card title="Google Maps migration" icon="move-right" href="/comparisons/google-maps-migration">
-    Compare HERE and Google Maps APIs for cost, features and enterprise use cases.
+  <Card title="Comparisons" icon="scale-balanced" href="/comparisons">
+    HERE against Google, TomTom, and Mapbox — including where they beat HERE.
   </Card>
 </CardGroup>
 
-## What you can build with HERE
+## What this documentation covers
 
-- Fleet routing and dispatching systems
-- Truck routing with vehicle restrictions
-- EV routing and charging-aware applications
-- Address search, geocoding and reverse geocoding
-- Store locators and service area tools
-- Territory management and spatial analytics
-- Google Maps migration projects
+HERE maintains the parameter tables and response schemas. We link to them. What we write is the layer around the reference:
 
-## Need production HERE API keys?
+**Which API answers your question.** Routing, Distance Matrix, and Tour Planning look interchangeable and are not. Building a matrix from a loop of routing calls is the most expensive architectural mistake in this domain.
 
-Placematic is a HERE Technologies reseller and implementation partner. We help companies choose the right HERE APIs, estimate usage, configure production keys and migrate from Google Maps or other location platforms.
+**What it will cost.** Per-1,000 rates are close across vendors. Your bill is set by call mix, volume tier, and whether you batched. We show you how to forecast it before you sign anything.
 
-<Card title="Contact Placematic" icon="message-circle" href="https://placematic.com/contact/">
-  Talk to us about HERE licensing, API keys, pricing and implementation support.
+**How teams get it wrong.** `transportMode=truck` selects a routing engine. It does not supply your vehicle's dimensions. Omit them and HERE returns a route, without warning, that a 4.1m trailer cannot physically drive.
+
+**When to use something else.** For consumer place discovery, business hours, and reviews, Google's data is better and you should keep it. Under roughly 10k calls a month, migration is a rounding error you will spend a quarter chasing.
+
+## Featured guides
+
+<CardGroup cols={2}>
+  <Card title="Truck Routing" icon="truck" href="/guides/truck-routing">
+    Physical constraints as first-class inputs — and the trap geometry that proves your integration applies them.
+  </Card>
+  <Card title="HERE Pricing Explained" icon="chart-line" href="/start-here/here-pricing-explained">
+    Call volume versus asset-based pricing, and how to model a bill you can defend to finance.
+  </Card>
+  <Card title="Choosing the Right HERE APIs" icon="sitemap" href="/start-here/choosing-the-right-here-apis">
+    A decision path by the question your system asks, not by product name.
+  </Card>
+  <Card title="Migrating from Google Maps" icon="arrow-right-arrow-left" href="/guides/google-migration">
+    Endpoint mapping, sequencing, and validating route quality during cutover.
+  </Card>
+</CardGroup>
+
+## Who builds on this
+
+Placematic has been a HERE Gold Partner since 2016, deploying HERE into production routing engines, ELD platforms, and field operations tools. GreenLight ELD (Joliet, IL) runs on it.
+
+Every page here comes from an integration we shipped, including the ones that went badly the first time.
+
+## Need production keys?
+
+Placematic helps engineering teams select the right HERE APIs, forecast usage, migrate from Google Maps, and reach production. One contract, one invoice, no direct HERE account.
+
+<Card title="Request API keys" icon="key" href="https://placematic.com/start-trial/">
+  One business day. No credit card. No demo call required.
 </Card>
