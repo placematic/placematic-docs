@@ -5,7 +5,7 @@ description: "How to authenticate against HERE APIs — API keys vs OAuth, key r
 
 HERE APIs support two authentication mechanisms: API keys and OAuth 2.0 bearer tokens. Most REST endpoints accept an API key. Some services — and some enterprise contracts — require OAuth.
 
-Through Placematic, you authenticate with an `x-api-key` header. No direct HERE account is created.
+Through Placematic, you authenticate with an `apiKey` header. No direct HERE account is created.
 
 ## Why this matters
 
@@ -46,8 +46,8 @@ If you don't know which you need, you need an API key. OAuth requirements announ
 
 <CodeGroup>
 ```bash cURL
-curl "https://routes.placematic.com/v8/routes" \
-  -H "x-api-key: $PLACEMATIC_KEY" \
+curl "https://router.hereapi.com/v8/routes" \
+  -H "apiKey: $PLACEMATIC_KEY" \
   -G \
   --data-urlencode "transportMode=truck" \
   --data-urlencode "origin=42.0641,-88.0509" \
@@ -61,11 +61,11 @@ import os
 import requests
 
 SESSION = requests.Session()
-SESSION.headers.update({"x-api-key": os.environ["PLACEMATIC_KEY"]})
+SESSION.headers.update({"apiKey": os.environ["PLACEMATIC_KEY"]})
 
 def route(origin: str, destination: str) -> dict:
     resp = SESSION.get(
-        "https://routes.placematic.com/v8/routes",
+        "https://router.hereapi.com/v8/routes",
         params={
             "transportMode": "truck",
             "origin": origin,
@@ -96,8 +96,8 @@ async function route(origin, destination) {
   });
 
   const resp = await fetch(
-    `https://routes.placematic.com/v8/routes?${params}`,
-    { headers: { "x-api-key": KEY } }
+    `https://router.hereapi.com/v8/routes?${params}`,
+    { headers: { "apiKey": KEY } }
   );
 
   if (resp.status === 403) {
@@ -177,7 +177,7 @@ No. Placematic issues keys scoped to your account. Placematic USA LLC is the con
 API key, unless a specific endpoint or your security policy requires OAuth. Most integrations never need it.
 
 **Where do I put the key?**
-The `x-api-key` request header. Not the query string.
+The `apiKey` request header. Not the query string.
 
 **Can I use one key for sandbox and production?**
 No. They are separate credentials with separate quotas.

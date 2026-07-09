@@ -76,8 +76,8 @@ A common and reasonable outcome: keep Google for consumer-facing search and auto
 
 <CodeGroup>
 ```bash Truck routing — constrained
-curl "https://routes.placematic.com/v8/routes" \
-  -H "x-api-key: $PLACEMATIC_KEY" \
+curl "https://router.hereapi.com/v8/routes" \
+  -H "apiKey: $PLACEMATIC_KEY" \
   -G \
   --data-urlencode "transportMode=truck" \
   --data-urlencode "origin=42.0641,-88.0509" \
@@ -91,8 +91,8 @@ curl "https://routes.placematic.com/v8/routes" \
 ```bash Same request — constraints omitted
 # Returns a route. Possibly under a 3.9m bridge.
 # HERE assumes an unconstrained vehicle. No error, no warning.
-curl "https://routes.placematic.com/v8/routes" \
-  -H "x-api-key: $PLACEMATIC_KEY" \
+curl "https://router.hereapi.com/v8/routes" \
+  -H "apiKey: $PLACEMATIC_KEY" \
   -G \
   --data-urlencode "transportMode=truck" \
   --data-urlencode "origin=42.0641,-88.0509" \

@@ -70,8 +70,8 @@ Once you have a key, verify entitlement before writing any application code:
 
 <CodeGroup>
 ```bash cURL
-curl "https://routes.placematic.com/v8/routes" \
-  -H "x-api-key: $PLACEMATIC_KEY" \
+curl "https://router.hereapi.com/v8/routes" \
+  -H "apiKey: $PLACEMATIC_KEY" \
   -G \
   --data-urlencode "transportMode=truck" \
   --data-urlencode "origin=42.0641,-88.0509" \
@@ -86,8 +86,8 @@ import os
 import requests
 
 resp = requests.get(
-    "https://routes.placematic.com/v8/routes",
-    headers={"x-api-key": os.environ["PLACEMATIC_KEY"]},
+    "https://router.hereapi.com/v8/routes",
+    headers={"apiKey": os.environ["PLACEMATIC_KEY"]},
     params={
         "transportMode": "truck",
         "origin": "42.0641,-88.0509",
@@ -113,8 +113,8 @@ const params = new URLSearchParams({
 });
 
 const resp = await fetch(
-  `https://routes.placematic.com/v8/routes?${params}`,
-  { headers: { "x-api-key": process.env.PLACEMATIC_KEY } }
+  `https://router.hereapi.com/v8/routes?${params}`,
+  { headers: { "apiKey": process.env.PLACEMATIC_KEY } }
 );
 
 if (!resp.ok) throw new Error(`HERE returned ${resp.status}`);
