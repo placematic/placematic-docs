@@ -1,0 +1,113 @@
+---
+title: "Architecture"
+description: "Design decisions that determine whether a location platform survives scale — and why the API call is almost never the thing that matters."
+---
+
+# Architecture
+
+Nobody's location platform failed because they called the wrong endpoint.
+
+They failed because they called the right endpoint six hundred thousand times a day when one call would have done. Because a cache key omitted a tenant identifier. Because a routing constraint lived in a request builder instead of on a vehicle record, and a refactor dropped it.
+
+These pages are about those decisions.
+
+## Why this section exists
+
+The guides tell you what an API does. The use cases tell you how to solve a business problem. Neither tells you why a system that works at ten vehicles collapses at two hundred, or why the migration that saved 60% on paper cost eighteen months of engineering.
+
+The pattern across every location system we have seen in production is the same: **the expensive mistakes are architectural, they are made in week one, and they are discovered in month six by operations.**
+
+<Info>
+A useful test. Take your highest-volume location call and ask: *what is the smallest unit of work that genuinely requires this?* If the answer is "an event," and you are calling it per packet, you have found the bug — and it is not in the code.
+</Info>
+
+## The four decisions that matter
+
+Almost every location architecture question reduces to one of these.
+
+**1. What is the unit of work?**
+
+A GPS packet is not an event. A keystroke is not a query. An address is not an order. Systems bill on the unit they call, and the default unit is nearly always too small.
+
+The reverse-geocode-per-ping problem, the autocomplete-per-keystroke problem, and the routing-call-per-page-load problem are the same problem wearing three hats.
+
+**2. Is this computation or lookup?**
+
+A drive-time polygon is a computation. Testing whether a point is inside it is a lookup. The first belongs to a routing API, computed quarterly. The second belongs to your database, executed millions of times, for free.
+
+Teams that call an API for the second have built a spatial database with an invoice attached.
+
+**3. What is the latency budget, honestly?**
+
+Nothing is waiting for a nightly geocoding job. Nothing is waiting for a trip to be map-matched. Nothing is waiting for a territory to be re-optimized.
+
+Real-time endpoints exist because sometimes a user is watching a spinner. Paying for that latency when nobody is watching is the second-largest avoidable cost in this domain.
+
+**4. Where does the constraint live?**
+
+A truck's height is a property of the truck. A hazmat class is a property of the load. A tenant's vehicle profile is tenant data.
+
+Constraints that live in request builders get dropped in refactors, silently, and the response still returns `200`.
+
+## What these pages assume
+
+You have read the [guides](/guides). You know what Matrix Routing does. You are not looking for parameter tables.
+
+You are deciding whether to build a queue, how to key a cache, what to shadow-write during a migration, and how to explain a bill to your CFO.
+
+## The pages
+
+<CardGroup cols={2}>
+  <Card title="Routing vs Matrix" href="/architecture/choosing-routing-vs-matrix">
+    The loop that is costing you money, why it looks correct, and the decision tree.
+  </Card>
+  <Card title="Caching Geocoding Results" href="/architecture/caching-geocoding-results">
+    Normalization, invalidation, and the privacy question a permanent cache raises.
+  </Card>
+  <Card title="High-Volume Geocoding" href="/architecture/high-volume-geocoding">
+    Millions of addresses. Queues, retries, idempotency, and what to monitor.
+  </Card>
+  <Card title="Routing System Architecture" href="/architecture/routing-system-architecture">
+    Gateway, queue, cache, failover. The reference design and where it bends.
+  </Card>
+  <Card title="Google Migration Architecture" href="/architecture/google-migration-architecture">
+    Dual-running, shadow comparison, and the rollback you must test before you need it.
+  </Card>
+  <Card title="Multi-Tenant Location Platform" href="/architecture/multi-tenant-location-platform">
+    Isolation failure modes, quota allocation, and the cache key that leaks.
+  </Card>
+  <Card title="Cost Optimization Patterns" href="/architecture/cost-optimization-patterns">
+    A taxonomy of the patterns that move a bill by orders of magnitude.
+  </Card>
+</CardGroup>
+
+## A principle worth stating plainly
+
+**Most location systems do not need most of a location platform.**
+
+Materialize what you can. Cache what does not move. Batch what nobody waits for. Compute in your own database what your own database can compute.
+
+What remains — routing a constrained vehicle, solving a VRP, matching a trace to a road network — is genuinely hard, genuinely worth buying, and genuinely small as a fraction of the calls most systems make.
+
+The architecture is what separates those two categories.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Guides" href="/guides">
+    API-level implementation guidance.
+  </Card>
+  <Card title="Use Cases" href="/use-cases">
+    Business problems and their reference architectures.
+  </Card>
+</CardGroup>
+
+## HERE documentation
+
+- [HERE Technologies documentation](https://www.here.com/docs)
+
+---
+
+Need help designing or implementing a production HERE solution?
+
+Placematic helps engineering teams select the right HERE APIs, estimate usage, migrate from Google Maps and build production-ready geospatial systems. [Talk to us](https://placematic.com/contact/).

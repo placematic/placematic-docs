@@ -85,8 +85,20 @@
           "use-cases/last-mile-delivery",
           "use-cases/fleet-electrification",
           "use-cases/hazmat-routing",
-          
           "use-cases/address-validation"
+        ]
+      },
+      {
+        "group": "Architecture",
+        "pages": [
+          "architecture/index",
+          "architecture/choosing-routing-vs-matrix",
+          "architecture/caching-geocoding-results",
+          "architecture/high-volume-geocoding",
+          "architecture/routing-system-architecture",
+          "architecture/google-migration-architecture",
+          "architecture/multi-tenant-location-platform",
+          "architecture/cost-optimization-patterns"
         ]
       },
       {
