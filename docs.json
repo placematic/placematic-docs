@@ -36,7 +36,7 @@
         "pages": [
           "index",
           "getting-started/what-is-here-location-services",
-          "getting-started/get-here-api-key",
+          "getting-started/getting-a-here-api-key",
           "getting-started/here-pricing-explained",
           "getting-started/authentication",
           "getting-started/choose-the-right-api",
