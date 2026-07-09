@@ -68,6 +68,9 @@ No key yet? [Request one](https://placematic.com/start-trial/) — issued within
 ## Start here
 
 <CardGroup cols={2}>
+  <Card title="Cost optimization patterns" icon="chart-line" href="/architecture/cost-optimization-patterns">
+    Learn how batching, caching, pre-computation and choosing the right HERE API can reduce location API costs.
+  </Card>
   <Card title="Getting Started" icon="play" href="/getting-started/what-is-here-location-services">
     Platform overview, API keys, authentication, and how HERE pricing actually works.
   </Card>
@@ -116,6 +119,12 @@ HERE maintains the parameter tables and response schemas. We link to them. What 
 Placematic has been a HERE Gold Partner since 2016, deploying HERE into production routing engines, ELD platforms, and field operations tools.
 
 Every page here comes from an integration we shipped, including the ones that went badly the first time.
+
+## Our implementation philosophy
+
+A production location system should not call an external API for every decision.
+
+Use HERE where fresh routing, traffic, geocoding or map data matters. Cache, batch and materialize everything else.
 
 ## Need production keys?
 
