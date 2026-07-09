@@ -1,6 +1,62 @@
-<svg width="220" height="40" viewBox="0 0 220 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <circle cx="20" cy="20" r="14" fill="#16A34A"/>
-  <path d="M14 21L18.5 25.5L27 15" stroke="white" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
-  <text x="44" y="26" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700" fill="#111827">Placematic</text>
-  <text x="156" y="26" font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="500" fill="#6B7280">Docs</text>
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 980 293"
+     height="35"
+     role="img"
+     aria-label="Placematic API Docs">
+
+  <title>Placematic API Docs</title>
+
+  <style>
+    .pm-logo-dot{
+      fill:var(--accent-2,#4E74F4);
+    }
+
+    .pm-title{
+      font-family:Arial,Helvetica,sans-serif;
+      font-size:126px;
+      font-weight:700;
+      fill:#111827;
+      dominant-baseline:middle;
+    }
+
+    .pm-subtitle{
+      font-family:Arial,Helvetica,sans-serif;
+      font-size:92px;
+      font-weight:600;
+      fill:#4E74F4;
+      dominant-baseline:middle;
+    }
+  </style>
+
+  <!-- ===================================================== -->
+  <!-- Original Placematic logo (UNCHANGED)                  -->
+  <!-- ===================================================== -->
+
+  <circle class="pm-logo-dot" cx="120.5" cy="38.0" r="15.8"/>
+  <circle class="pm-logo-dot" cx="24.5"  cy="113.0" r="11.8"/>
+  <circle class="pm-logo-dot" cx="121.0" cy="112.5" r="18.8"/>
+  <circle class="pm-logo-dot" cx="187.5" cy="112.5" r="15.5"/>
+  <circle class="pm-logo-dot" cx="121.0" cy="184.0" r="12.0"/>
+  <circle class="pm-logo-dot" cx="186.5" cy="184.5" r="15.5"/>
+  <circle class="pm-logo-dot" cx="251.0" cy="184.0" r="12.0"/>
+  <circle class="pm-logo-dot" cx="186.0" cy="258.0" r="12.0"/>
+
+  <!-- ===================================================== -->
+  <!-- Text                                                  -->
+  <!-- ===================================================== -->
+
+  <text
+      x="350"
+      y="148"
+      class="pm-title">
+      Placematic
+  </text>
+
+  <text
+      x="1050"
+      y="160"
+      class="pm-subtitle">
+      API Docs
+  </text>
+
 </svg>
