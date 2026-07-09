@@ -33,7 +33,7 @@ Answer these in order. Stop at the first match.
 → **Tour Planning API.** Time windows, vehicle capacity, driver shifts, skills. This is a solver, not a router. Enterprise tier, typically committed plan.
 
 **4. Do you need to convert an address to coordinates?**
-→ **Geocoding API** for real-time, one at a time. **Batch Geocoding** for anything that tolerates latency. If you are geocoding a file, you want batch. See [HERE Pricing Explained](/start-here/here-pricing-explained).
+→ **Geocoding API** for real-time, one at a time. **Batch Geocoding** for anything that tolerates latency. If you are geocoding a file, you want batch. See [HERE Pricing Explained](/getting-started/here-pricing-explained).
 
 **5. Coordinates back to an address?**
 → **Reverse Geocoding API.** Common in telematics — turning a GPS ping into a human-readable location.
@@ -90,7 +90,7 @@ The tell: if the result is written to a database rather than rendered to a scree
 
 **Constraints are inputs, not filters.** Height, gross weight, axle count, hazmat class. Omit them and the truck engine assumes an unconstrained vehicle. No warning is issued.
 
-**Entitlements are per-API.** Requesting the right API means little if your key isn't licensed for it. You will discover this as a `403`. See [Authentication](/start-here/authentication).
+**Entitlements are per-API.** Requesting the right API means little if your key isn't licensed for it. You will discover this as a `403`. See [Authentication](/getting-started/authentication).
 
 **Batch is asynchronous.** Submit, poll, retrieve. Design for it rather than wrapping it in a synchronous facade with a timeout.
 
@@ -150,7 +150,7 @@ Yes, and many teams should. Google for consumer place search, HERE for routing a
 Tiles for web. SDK for native turn-by-turn, offline maps, or on-device rendering. Separate entitlements, both available under one Placematic contract.
 
 **How do I know if my key covers an API?**
-Call it. `200` means entitled. `403` means licensed elsewhere, not here. See [Authentication](/start-here/authentication).
+Call it. `200` means entitled. `403` means licensed elsewhere, not here. See [Authentication](/getting-started/authentication).
 
 **Where do I find full parameter documentation?**
 The [official HERE documentation](https://www.here.com/docs). These guides cover implementation judgement, not parameter reference — we don't duplicate what HERE maintains well.
@@ -164,15 +164,15 @@ The [official HERE documentation](https://www.here.com/docs). These guides cover
   <Card title="Distance Matrix" href="/guides/distance-matrix">
     When one call replaces ten thousand.
   </Card>
-  <Card title="HERE Pricing Explained" href="/start-here/here-pricing-explained">
+  <Card title="HERE Pricing Explained" href="/getting-started/here-pricing-explained">
     Choosing the right API is the largest cost lever you have.
   </Card>
-  <Card title="HERE vs Google Maps" href="/start-here/here-vs-google-maps">
+  <Card title="HERE vs Google Maps" href="/getting-started/here-vs-google-maps">
     Per-API comparison, including where Google wins.
   </Card>
 </CardGroup>
 
-Also relevant: [Authentication](/start-here/authentication) · [Batch Geocoding](/guides/batch-geocoding) · [Migrating from Google Maps](/guides/google-migration)
+Also relevant: [Authentication](/getting-started/authentication) · [Batch Geocoding](/guides/batch-geocoding) · [Migrating from Google Maps](/guides/google-migration)
 
 ---
 

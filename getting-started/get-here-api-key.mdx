@@ -44,7 +44,7 @@ Concretely — go partner-issued if any of these apply:
 
 **Sandbox and production keys are separate credentials.** Both are scoped to your account. Sandbox keys let you build against real endpoints with non-production quotas. Never ship a sandbox key.
 
-**API keys authenticate the application, not the user.** They belong in server-side environment variables. See [Authentication](/start-here/authentication) for the full treatment, including when you need OAuth instead.
+**API keys authenticate the application, not the user.** They belong in server-side environment variables. See [Authentication](/getting-started/authentication) for the full treatment, including when you need OAuth instead.
 
 **Keys are scoped to entitlements.** A key that works for geocoding may return `401` or `403` on tour planning. This is not a bug. It means your account does not include that product.
 
@@ -131,7 +131,7 @@ A `200` means the key is valid *and* entitled for truck routing. A `401` means t
 - **Store keys in a secret manager.** Not `.env` committed to git. Not a Slack message. Not a Postman collection you share with a contractor.
 - **Restrict keys where the platform allows it.** Domain restrictions for browser-exposed keys, IP allowlists for server keys.
 - **Rotate on personnel change.** Anyone who has read your production key still has it after they leave.
-- **Log the HTTP status, not just the body.** `403` and `429` mean entirely different things and require different responses. See [Authentication](/start-here/authentication).
+- **Log the HTTP status, not just the body.** `403` and `429` mean entirely different things and require different responses. See [Authentication](/getting-started/authentication).
 
 ## Common mistakes
 
@@ -177,21 +177,21 @@ Not for pilot access. Production contracts define volume tiers based on your exp
 If you currently license HERE directly, migration to a Gold Partner contract is possible and frequently improves pricing. Bring your current terms and we'll tell you honestly whether we can beat them.
 
 **What's the difference between an API key and an OAuth token?**
-Different auth mechanisms for different APIs and different security postures. Covered in [Authentication](/start-here/authentication).
+Different auth mechanisms for different APIs and different security postures. Covered in [Authentication](/getting-started/authentication).
 
 ## Related guides
 
 <CardGroup cols={2}>
-  <Card title="Authentication" href="/start-here/authentication">
+  <Card title="Authentication" href="/getting-started/authentication">
     API keys, OAuth, key rotation, and what each HTTP error code actually means.
   </Card>
-  <Card title="HERE Pricing Explained" href="/start-here/here-pricing-explained">
+  <Card title="HERE Pricing Explained" href="/getting-started/here-pricing-explained">
     What happens when the free tier ends.
   </Card>
-  <Card title="Choosing the Right HERE APIs" href="/start-here/choosing-the-right-here-apis">
+  <Card title="Choosing the Right HERE APIs" href="/getting-started/choosing-the-right-here-apis">
     Decide which entitlements to request before you request them.
   </Card>
-  <Card title="What is HERE Location Services?" href="/start-here/what-is-here-location-services">
+  <Card title="What is HERE Location Services?" href="/getting-started/what-is-here-location-services">
     The platform overview, if you skipped it.
   </Card>
 </CardGroup>
