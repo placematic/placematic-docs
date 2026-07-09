@@ -60,8 +60,6 @@
           "guides/batch-geocoding",
           "guides/points-of-interest",
           "guides/here-sdk",
-
-
           "guides/google-migration"
         ]
       },
@@ -69,10 +67,26 @@
         "group": "Use cases",
         "pages": [
           "use-cases/fleet-routing",
+          "use-cases/logistics-platform",
           "use-cases/delivery-zones",
+          "use-cases/restaurant-delivery",
+          "use-cases/field-service",
           "use-cases/store-locator",
-          "use-cases/address-validation",
-          "use-cases/territory-management"
+          "use-cases/territory-management",
+          "use-cases/ev-charging",
+          "use-cases/site-selection",
+          "use-cases/location-intelligence",
+          "use-cases/reducing-google-maps-costs",
+          "use-cases/embedding-routing-api",
+          "use-cases/eta-calculation",
+          "use-cases/eld-platform",
+          "use-cases/vehicle-tracking",
+          "use-cases/geofencing",
+          "use-cases/last-mile-delivery",
+          "use-cases/fleet-electrification",
+          "use-cases/hazmat-routing",
+          
+          "use-cases/address-validation"
         ]
       },
       {
