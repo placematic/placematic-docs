@@ -1,0 +1,198 @@
+---
+title: "Migrating from Google Maps Platform to HERE"
+description: "A sequenced migration guide — what to move first, what to keep on Google, how to validate quality during cutover, and how to model whether migration is worth it at all."
+---
+
+# Migrating from Google Maps Platform to HERE
+
+Before anything else: **optimize on Google first.**
+
+Cache your geocoding results. Batch what tolerates latency. Debounce your autocomplete. Put a CDN in front of your tiles. Stop reverse-geocoding every GPS ping.
+
+Do that, re-measure, and a meaningful share of teams discover the bill halved without changing vendors. What remains is your real migration case — and now you have a clean baseline to measure against.
+
+<Warning>
+Migrating an uncached, undebounced implementation to HERE moves the waste to a cheaper meter. You will save money and still be wrong.
+</Warning>
+
+## What problem this guide solves
+
+You have decided — or been asked — to evaluate leaving Google Maps Platform. This guide is about sequencing, validation, and honest cost modelling. It is not a cheerleading exercise. Several sections tell you not to migrate.
+
+## When migration is justified
+
+Two or more of these should be true:
+
+- **You route commercial vehicles** and are currently using car routing. This alone is often sufficient. Google offers no equivalent depth of physical constraints. See [Truck Routing](/guides/truck-routing).
+- **Monthly spend is five figures or more**, dominated by routing or geocoding.
+- **You compute large distance matrices** with sequential calls. See [Matrix Routing](/guides/matrix-routing).
+- **Price volatility is a board-level concern.** HERE pricing through a Gold Partner is contractual and does not reprice mid-term.
+- **You need truck-attributed map data** and are currently approximating it.
+
+## When NOT to migrate
+
+<Warning>
+Do not migrate if the only argument is "cheaper." Cheaper on a feature that regresses is not cheaper.
+</Warning>
+
+- **Spend under roughly $1,000/month.** Optimize call patterns instead. The payback period on migration engineering is measured in years.
+- **Your product's core value is consumer place discovery.** Google's POI database — business hours, reviews, photos, categories — is categorically better. Keep it.
+- **You need Street View.** No equivalent exists.
+- **No engineering capacity this quarter.** A half-finished migration is worse than either endpoint.
+- **Deep frontend coupling to `google.maps.*` with no other reason.** That is a rewrite of your rendering layer.
+
+## The honest cost model
+
+Present this to your CFO before someone else asks for it.
+
+| Line | Value |
+|---|---|
+| Current Google spend, per endpoint, from logs | Measure it |
+| Savings from caching and batching **on Google** | Measure it |
+| Remaining spend — the real migration target | Derived |
+| Projected HERE spend at the same call volume | Model both pricing models |
+| Migration engineering cost | Estimate honestly |
+| Payback period | Derived |
+
+Teams migrating at production volume typically see **40–70% savings**, and **80%+ on geocoding-heavy workloads**. Those ranges assume the call pattern is already sane.
+
+<Warning>
+A payback period beyond eighteen months means the savings argument is weaker than the headline number. Say so before your CFO does. It buys you credibility for the migrations that are worth doing.
+</Warning>
+
+**The meters do not map one to one.** Google bills per session where HERE bills per request, and the reverse. You cannot derive a HERE forecast from a Google invoice. Instrument per-endpoint call counts first. See [HERE Pricing Explained](/start-here/here-pricing-explained).
+
+## Sequencing: migrate one surface at a time
+
+<Warning>
+Never migrate two systems simultaneously. Two independent changes, one production incident, ambiguous root cause. You will spend more on the investigation than you saved that month.
+</Warning>
+
+**1. Batch geocoding.** Smallest surface. Largest saving. Nothing user-facing. If it goes wrong, you fix a nightly job, not a checkout flow. Start here. See [Geocoding](/guides/geocoding).
+
+**2. Reverse geocoding for telematics.** Same argument. Backend, high volume, no UI. See [Reverse Geocoding](/guides/reverse-geocoding).
+
+**3. Matrix operations.** If you are looping routing calls, this is where the money is. See [Matrix Routing](/guides/matrix-routing).
+
+**4. Routing.** Now user-visible. Requires quality validation, not just cost validation. See [Routing](/guides/routing).
+
+**5. Real-time geocoding and autocomplete.** User-facing. Be honest about whether HERE's suggestions serve your users as well.
+
+**6. Rendering.** Last. Most visible. Tile aesthetics differ. See [Maps](/guides/maps).
+
+Stabilize each step before starting the next.
+
+## What to keep on Google
+
+A hybrid architecture is a decision, not an admission. Say so up front, in writing, before someone frames it as a failed migration.
+
+Keep Google for:
+
+- Consumer place search and business POI data
+- Consumer autocomplete where typo tolerance and aliasing matter
+- Street View
+- Any surface where its data quality is the product
+
+Move to HERE:
+
+- Truck and commercial vehicle routing
+- Distance matrices
+- Batch and telematics geocoding
+- Transport-attributed map layers
+
+## Mechanical differences that will bite you
+
+**Coordinate order.** HERE Routing takes `lat,lng`. GeoJSON is `lng,lat`. This will bite you exactly once, and it will be at 2am.
+
+**`200` is not success.** HERE returns `200` with an empty `routes` array and a `notice` containing `routeCalculationFailed` when no path exists. Checking `resp.ok` swallows the failure. See [Routing](/guides/routing).
+
+**`403` is not `401`.** `401` means a bad key. `403` means a valid key without entitlement for that API. Retrying `403` is permanently futile and generates support tickets. See [Authentication](/start-here/authentication).
+
+**Truck mode requires explicit dimensions.** `transportMode=truck` selects the engine. It does not describe your vehicle. Height in centimetres, `grossWeight` in kilograms. Omitting them returns a route no truck can drive, with no warning.
+
+**Matrix results are flat arrays.** `travelTimes` is row-major, not nested. Index as `travelTimes[origin * numDestinations + destination]`. Get it wrong and every travel time is plausible and every assignment is transposed.
+
+**Batch geocoding is a job lifecycle.** Create, start, poll, retrieve, delete. Not a bulk endpoint.
+
+**Response schemas differ throughout.** Mechanical work. Not hard work. Not zero.
+
+## Validating quality, not just cost
+
+This is the step teams skip, and the reason migrations get reverted.
+
+**Replay real traffic.** Take 500 actual historical trips. Route them through both platforms. Compare against ground truth — actual driven distance and duration from telematics — not against each other.
+
+**For truck routing, test trap geometry.** Route a 410 cm vehicle through the 11foot8 bridge in Durham NC, Storrow Drive in Boston, and the Southern State Parkway on Long Island. Any platform that returns a path fails. Run the same three in `car` mode as a control; all three should route.
+
+**Shadow-write before you cut over.** Send production traffic to both. Log both responses. Compare offline. Cut over when the diff is boring.
+
+**Feature-flag by endpoint.** Not by user. Not by percentage. By endpoint, so a rollback is one flag and one surface.
+
+**Keep both live during cutover.** Two invoices for a month is cheaper than one incident.
+
+<Tip>
+Write the rollback procedure before the cutover, and test it. A migration you cannot reverse is not a migration, it is a bet.
+</Tip>
+
+## Common mistakes
+
+**Migrating before optimizing.** You may be migrating waste.
+
+**Comparing per-1,000 list prices.** Entry rates are close across vendors. Call mix, volume tier, batching, and free bundles determine your bill.
+
+**Migrating everything at once.** Ambiguous root cause on the first incident.
+
+**Presenting savings without migration cost.** Your CFO will ask.
+
+**Validating cost but not quality.** Cheaper wrong routes are worse.
+
+**Assuming HERE POI data will satisfy a consumer search feature.** It will not.
+
+**Underestimating frontend coupling.** `google.maps.*` in React components is not a config change.
+
+**Treating tile styling as cosmetic.** Show design the maps early.
+
+**No rollback plan.**
+
+## Best practices
+
+- Instrument per-endpoint call counts from logs, not estimates
+- Cache, batch, and debounce **on Google** first; re-measure
+- Sequence: batch geocoding → telematics → matrix → routing → autocomplete → rendering
+- Shadow-write and compare offline before cutting over
+- Validate route quality against telematics ground truth
+- Assert trap-geometry rejection in CI for truck routing
+- Feature-flag per endpoint; keep both platforms live during cutover
+- Document what stays on Google, and why, before anyone calls it a partial migration
+
+## API reference
+
+- [Routing API v8](https://www.here.com/docs/bundle/routing-api-developer-guide-v8/page/get-started.html)
+- [Geocoding & Search v7](https://www.here.com/docs/bundle/geocoding-and-search-api-v7-api-reference/page/index.html)
+- [Matrix Routing v8](https://www.here.com/docs/category/matrix-routing-api-v8)
+- [HERE Map Rendering](https://www.here.com/docs/category/here-map-rendering)
+
+## Related guides
+
+<CardGroup cols={2}>
+  <Card title="HERE vs Google Maps" href="/comparisons/here-vs-google-maps">
+    Where each platform genuinely wins, including where Google does.
+  </Card>
+  <Card title="HERE Pricing Explained" href="/start-here/here-pricing-explained">
+    Model the bill before you build the business case.
+  </Card>
+  <Card title="Geocoding and Search" href="/guides/geocoding">
+    The first surface to migrate, and the largest saving.
+  </Card>
+  <Card title="Truck Routing" href="/guides/truck-routing">
+    The capability argument, which is stronger than the cost argument.
+  </Card>
+</CardGroup>
+
+Also: [Matrix Routing](/guides/matrix-routing) · [Reverse Geocoding](/guides/reverse-geocoding) · [Maps](/guides/maps) · [HERE API pricing](https://placematic.com/here-location-services/here-pricing/)
+
+---
+
+Need production HERE API keys or implementation support?
+
+Placematic is an official HERE Technologies reseller and implementation partner helping companies choose the right HERE APIs, estimate usage, migrate from Google Maps and build production-ready geospatial solutions. [Talk to us](https://placematic.com/contact/).

@@ -1,0 +1,158 @@
+---
+title: "HERE Catchment Area and Isolines — Implementation Guide"
+description: "Computing travel-time service areas with HERE — isolines versus radius buffers, range types, when a polygon lies to you, and the site-selection workflow that depends on it."
+---
+
+# HERE Catchment Area and Isolines
+
+A catchment area answers: everywhere reachable from this point within N minutes.
+
+The naive version is a circle. The circle is wrong, and it is wrong in a way that produces confident, defensible, incorrect business decisions — because a river, a highway with no exit, or a rail line does not care about Euclidean distance.
+
+## What problem this guide solves
+
+Site selection. Delivery zone definition. Service territory design. "Which stores can reach this customer in 30 minutes." "How many households are within a 15-minute drive."
+
+Every one of these is a reachability question, and every one is routinely answered with a radius because a radius is easy.
+
+<Warning>
+A 10-mile radius around a store in Chicago includes Lake Michigan. A 20-minute isoline does not. This is not a rounding error. It is a category error, and it shows up in expansion decisions that cost real money.
+</Warning>
+
+## When to use isolines
+
+- Trade area and catchment modelling for retail site selection
+- Delivery zone boundaries priced by drive time
+- Service territory design for field operations
+- "Is this address serviceable" containment checks
+- Coverage-gap analysis across a location network
+- Response-time modelling for dispatch
+
+## When NOT to use it
+
+- **Point-to-point travel time.** Use [Routing](/guides/routing). An isoline tells you the boundary, not the path.
+- **Many-to-many travel times.** Use [Matrix Routing](/guides/matrix-routing). If you want "travel time from 200 stores to 3,000 customers," that is a matrix, not 200 isolines.
+- **Real-time containment checks on every request.** Compute the polygon once, store it, query it in your own database. See below.
+- **When a radius genuinely suffices.** Dense urban grid, short distances, low stakes. Be honest. A 5-minute walking isoline in Manhattan is close to a circle, and the isoline call costs money.
+
+## Key concepts
+
+**Isolines come in range types.** Time, distance, and consumption. Time is what most business questions actually mean, and distance is what most teams accidentally request.
+
+**Transport mode changes the shape dramatically.** A truck isoline is smaller and differently shaped than a car isoline from the same origin, because trucks cannot use every road. If you are modelling truck service areas, use truck mode with [vehicle constraints](/guides/truck-routing).
+
+**Departure time changes the shape.** A 30-minute isoline at 3am and at 5pm are different polygons. If you compute at an arbitrary hour and apply the result to peak operations, your delivery zone is a fiction.
+
+**Isolines are approximations with a resolution parameter.** The returned polygon is a simplification of a reachability set. Higher resolution means a more accurate boundary and a larger response. Do not treat the vertices as ground truth for individual addresses near the edge.
+
+**Origin versus destination matters.** Reachability *from* a point and reachability *to* a point are different polygons where one-way streets, ramps, and turn restrictions exist. Ask the question you actually mean.
+
+<Warning>
+"Which customers can we reach in 30 minutes" is a *from-origin* isoline. "Which customers can reach us in 30 minutes" is a *to-destination* isoline. They are not the same polygon, and the difference matters most exactly where it is hardest to notice.
+</Warning>
+
+## Code examples
+
+<Info>
+HERE's isoline capability is delivered through the Routing product family, and the endpoint, range specification, and resolution parameters are versioned. Rather than publish a request we cannot verify against your entitlement and API version, we recommend starting from HERE's maintained reference:
+
+- [HERE Routing documentation](https://www.here.com/docs/category/routing-api-v8) — isoline routing
+- [Routing API v8 reference](https://www.here.com/docs/bundle/routing-api-v8-api-reference/page/index.html)
+
+Placematic provides a working request scoped to your account and use case during a pilot. The authentication pattern is identical to [Routing](/guides/routing).
+</Info>
+
+The response is a polygon. Everything below concerns what you do with it.
+
+## Production architecture
+
+**Compute once, store, query locally.** This is the entire architectural insight.
+
+An isoline for a fixed store location, a fixed range, and a representative departure time is stable for months. Compute it. Store the polygon in PostGIS, or any spatial store. Answer "is this address in our delivery zone" with a `ST_Contains` query costing nothing.
+
+<Tip>
+If your system calls HERE's isoline endpoint on every serviceability check at checkout, you have built a spatial database with an API bill attached. Materialize the polygons.
+</Tip>
+
+**Recompute on a schedule, not on demand.** Road networks change slowly. Quarterly is usually generous. Recompute when you open a location, close one, or change your service promise.
+
+**Store multiple time bands.** 10, 20, 30 minutes as nested polygons. Delivery pricing by band becomes a containment test, not three API calls.
+
+**Model peak and off-peak separately** if your operation spans both. Two polygon sets, chosen by time of day.
+
+**Simplify polygons before storing** if you do not need vertex-level precision. Smaller geometry, faster containment queries, and the isoline was an approximation to begin with.
+
+**Beware overlapping catchments.** Two stores' 20-minute polygons will overlap. Assigning a customer to "the store whose catchment contains them" is ambiguous by construction. Assign by actual travel time from [Matrix Routing](/guides/matrix-routing), and use catchments for coverage visualization.
+
+## Cost and usage considerations
+
+Each isoline computation is a billable transaction, and isolines are computationally heavier than point-to-point routes.
+
+Where teams overspend:
+
+- **Calling isolines for containment checks.** The dominant waste. Materialize the polygon; query it locally.
+- **Computing high-resolution polygons for coverage maps** where a coarse boundary renders identically at the zoom level shown.
+- **Recomputing unchanged catchments.** Store locations do not move.
+- **One isoline per customer query** where one isoline per store would have served every customer.
+
+The right pattern turns an unbounded per-request cost into a bounded per-location cost. For a 400-store network with three time bands, that is 1,200 calls per quarter, not per day.
+
+See [HERE Pricing Explained](/start-here/here-pricing-explained).
+
+## Common mistakes
+
+**Using a radius buffer instead of a drive-time isoline.** Rivers, lakes, and limited-access highways.
+
+**Calling the API on every serviceability check.** Materialize.
+
+**Ignoring departure time.** A midnight polygon applied to rush-hour operations.
+
+**Using car mode for a truck service area.** Trucks cannot use every road in the polygon.
+
+**Requesting distance range when you meant time range.** Both are valid. Only one answers your question.
+
+**Confusing from-origin with to-destination reachability.**
+
+**Treating polygon vertices as authoritative for edge addresses.** It is an approximation with a resolution setting.
+
+**Assigning customers to stores by catchment membership.** Overlaps make this ambiguous. Use travel time.
+
+## Best practices
+
+- Materialize polygons into a spatial database; query containment locally
+- Recompute on a schedule tied to network and location changes, not on demand
+- Store nested time bands as separate polygons
+- Use the transport mode and vehicle constraints you actually operate
+- Set departure time to a representative hour, and model peak separately if it matters
+- Choose resolution deliberately; simplify before storage
+- Use [Matrix Routing](/guides/matrix-routing) for store assignment; use isolines for coverage
+
+## API reference
+
+- [HERE Routing API v8](https://www.here.com/docs/category/routing-api-v8) — isoline routing
+- [Routing API v8 reference](https://www.here.com/docs/bundle/routing-api-v8-api-reference/page/index.html)
+
+## Related guides
+
+<CardGroup cols={2}>
+  <Card title="Matrix Routing" href="/guides/matrix-routing">
+    The right tool for assigning customers to locations.
+  </Card>
+  <Card title="Routing" href="/guides/routing">
+    The base engine and authentication pattern isolines share.
+  </Card>
+  <Card title="Truck Routing" href="/guides/truck-routing">
+    Truck service areas are smaller and differently shaped.
+  </Card>
+  <Card title="Geocoding and Search" href="/guides/geocoding">
+    Resolving the addresses you will test for containment.
+  </Card>
+</CardGroup>
+
+Also: [HERE Pricing Explained](/start-here/here-pricing-explained) · [Catchment Area API](https://placematic.com/here-location-services/catchment-area/) · [UpInsight](https://placematic.com/spatial-data-analytics/)
+
+---
+
+Need production HERE API keys or implementation support?
+
+Placematic is an official HERE Technologies reseller and implementation partner helping companies choose the right HERE APIs, estimate usage, migrate from Google Maps and build production-ready geospatial solutions. [Talk to us](https://placematic.com/contact/).

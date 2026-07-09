@@ -1,46 +1,168 @@
 ---
-title: HERE Maps guide
-description: How to display HERE maps, tiles and visual layers in applications.
+title: "HERE Maps and Map Rendering — Implementation Guide"
+description: "Implementing HERE map tiles in production — vector versus raster, web versus mobile SDK entitlements, session versus request billing, and the licensing question that surfaces at app store submission."
 ---
 
-# HERE Maps guide
+# HERE Maps and Map Rendering
 
-How to display HERE maps, tiles and visual layers in applications.
+Rendering is where mapping platforms feel most interchangeable and are most legally distinct.
 
-<Note>
-This page is part of Placematic Developer Hub: practical guides for teams building with HERE Location Services.
-</Note>
+Two things routinely surprise teams. First, web tile access and mobile SDK access are **separate entitlements** — discovering this during app store submission is expensive. Second, tiles bill differently depending on how you render them, so two implementations that produce the same map produce different invoices.
 
-## Problem
+## What problem this guide solves
 
-Most location projects fail not because the API is unavailable, but because teams choose the wrong service, underestimate usage, or miss production details such as caching, monitoring, fallback logic and data quality.
+You need a map on a screen. You may need a route drawn on it, traffic overlaid, or truck restrictions visible. You need to know what it costs and whether you are licensed to ship it.
 
-## Practical approach
+## What HERE offers
 
-Use this guide as a starting point for designing a production-ready location workflow. The final implementation depends on your product, request volume, regions, compliance needs and licensing model.
+HERE Map Rendering spans several products, and the naming does not make the distinction obvious:
 
-## Common questions
+- **Vector tiles** — geometry rendered client-side. Styleable. Sharper at any zoom. Larger client-side cost.
+- **Raster tiles** — pre-rendered images. Simple. Fixed styling. Trivial to cache.
+- **HERE Maps API for JavaScript** — HERE's own web SDK.
+- **HERE SDK (iOS/Android)** — native rendering, offline maps, turn-by-turn.
+- **HERE Style Editor** — for customizing vector tile styling.
 
-- Which HERE API should be used for this workflow?
-- How should request volume be estimated?
-- What should be cached?
-- What errors should be monitored in production?
-- How does this compare with Google Maps or other providers?
+Overlays available on top of the base map include traffic flow, traffic incidents, satellite imagery, and transport-specific layers such as weight and height restrictions.
 
-## Production checklist
+<Info>
+Placematic tiles work with **Leaflet, OpenLayers, and MapLibre GL**. If you already use one of these, integration is largely a tile URL swap — not a rewrite. If you are on the Google Maps JS SDK, the rendering layer is a rewrite. Budget for it.
+</Info>
 
-- Define your exact use case and required geography.
-- Estimate monthly and peak request volume.
-- Separate development and production keys.
-- Add error handling and retry logic.
-- Log API errors and latency.
-- Review caching and data retention rules.
-- Validate pricing before launch.
+## When to use HERE map rendering
 
-## Need production HERE API keys?
+- Fleet dispatcher and driver-facing maps where truck restrictions must be visible
+- Logistics and transport UIs needing weight, height, and hazmat layers
+- Store locators and network maps — see [Pos-Eye](https://placematic.com/here-location-services/#maps)
+- Any product where tile spend at production volume is material
+- Products already on Leaflet, OpenLayers, or MapLibre GL
 
-Placematic is a HERE Technologies reseller and implementation partner. We help companies choose the right HERE APIs, estimate usage, configure production keys and migrate from Google Maps or other location platforms.
+## When NOT to use it
 
-<Card title="Talk to Placematic" icon="message-circle" href="https://placematic.com/contact/">
-  Contact Placematic for HERE licensing, API keys, pricing and implementation support.
-</Card>
+<Warning>
+**Do not migrate rendering for aesthetics or for savings alone.** Tile styling differs visibly from Google. Your design team will notice, and rendering is the most user-visible surface you own.
+</Warning>
+
+- **Street View or equivalent.** HERE has no comparable product.
+- **Consumer place-rich maps.** Google's POI density, business labels, and hours are better. If your map's value is the businesses on it, that is a Google map.
+- **Low-volume rendering.** Under modest tile volumes both platforms are effectively free. Migration cost dominates.
+- **Deep coupling to `google.maps.*`.** Migrate because routing correctness or cost demands it. Not because a slide deck did.
+
+Keeping Google for the consumer-facing map while moving routing and geocoding to HERE is a coherent architecture, not a compromise.
+
+## Key concepts
+
+**Web tiles and mobile SDK are separate entitlements.** Both are available under a single Placematic contract. Both must be enabled explicitly. A key that serves tiles to your web app may return `403` from the mobile SDK. See [Authentication](/start-here/authentication).
+
+**Billing varies with implementation.** Tiles may be metered per request or per session depending on whether you use the web SDK, a mobile SDK, or static maps. Two implementations rendering the same view can bill differently. Know which one you shipped before you forecast.
+
+**Traffic overlays are independent layers.** They bill separately from base tiles and can be composited onto any base style. Turning traffic on is a cost decision, not a styling one.
+
+**Vector styling is client-side work.** Vector tiles cost less bandwidth and render sharper, at the price of client CPU. On low-end Android devices in a driver's cab, that trade-off is not academic.
+
+**Map data ships on a release cadence.** Base map freshness is a data-release property, not a live feed. Traffic flow and incidents are near-real-time. These are different systems with different latencies.
+
+**Attribution is contractual.** HERE requires attribution. It is not optional and it is not a design suggestion.
+
+## Code examples
+
+<Info>
+Tile URL formats, style parameters, and SDK initialization differ across HERE's rendering products and across your entitlement — web tiles, HERE Maps API for JavaScript, and the native SDKs each have distinct request patterns.
+
+Rather than publish a URL template that may be stale for your contract, we recommend starting from HERE's maintained reference:
+
+- [HERE Map Rendering documentation](https://www.here.com/docs/category/here-map-rendering)
+- [HERE Maps API for JavaScript](https://www.here.com/docs/category/here-map-rendering)
+- [HERE Style Editor](https://www.here.com/docs/category/here-map-rendering)
+
+Placematic provides working tile URLs and an OpenAPI spec scoped to your account during a pilot.
+</Info>
+
+If you are already rendering with Leaflet, OpenLayers, or MapLibre GL, the integration point is your existing tile source configuration. The library code does not change.
+
+## Production architecture
+
+**Cache tiles at the edge.** Tiles are static per zoom, x, y, and style. A CDN in front of your tile requests is the single highest-leverage cost reduction in rendering, and it is available to you regardless of vendor.
+
+**Restrict browser-exposed keys by domain.** Any key in frontend JavaScript is public. If it has no domain restriction, it is now someone else's key and someone else's invoice.
+
+**Consider proxying tile requests.** A thin server-side proxy keeps the key private and gives you a cache layer and per-tenant metering. It costs latency. Decide deliberately.
+
+**Do not render what nobody sees.** Pre-fetching tiles for map areas users never pan to is pure spend.
+
+**Separate the base map from overlays.** Traffic and restriction layers should be toggleable, and their cost should be attributable.
+
+**Handle low-end devices.** Vector rendering on an old Android tablet mounted in a truck cab is a different performance problem than vector rendering on a dispatcher's desktop.
+
+## Cost and usage considerations
+
+Rendering is metered independently of routing and geocoding. There is no bundle.
+
+Where teams overspend:
+
+- **No edge caching.** Fix this first, on any platform.
+- **Traffic overlay always on.** It is a separate meter. Most users do not need it always.
+- **Pre-fetching aggressively.** Tiles fetched and never viewed.
+- **Rendering a full interactive map where a static image would serve.** A thumbnail on a job card does not need a pannable map.
+- **One key across web and mobile.** Not a cost problem — an entitlement problem that becomes an outage.
+
+Confirm which billing model applies to your rendering implementation before you forecast. See [HERE Pricing Explained](/start-here/here-pricing-explained) and the [HERE API pricing page](https://placematic.com/here-location-services/here-pricing/).
+
+## Common mistakes
+
+**Assuming web tile access covers the mobile SDK.** Separate entitlements. Discovered at submission.
+
+**Shipping an unrestricted key in frontend JavaScript.** Public key, your bill.
+
+**Forecasting tile cost without knowing your billing model.** Session versus request is not a detail.
+
+**Leaving traffic overlays permanently enabled.** Separate meter.
+
+**No CDN in front of tiles.** Static assets, refetched.
+
+**Treating tile styling as cosmetic.** It is, until the product review.
+
+**Ignoring attribution requirements.** Contractual.
+
+**Rendering an interactive map where a static image suffices.**
+
+## Best practices
+
+- Put a CDN in front of tile requests
+- Restrict browser keys by domain; consider a server-side proxy
+- Confirm web and mobile SDK entitlements before you plan the mobile release
+- Make traffic and restriction overlays toggleable and attributable
+- Test vector rendering on the worst device your users actually have
+- Show the maps to design before you commit to the migration
+- Comply with attribution
+
+## API reference
+
+- [HERE Map Rendering documentation](https://www.here.com/docs/category/here-map-rendering)
+- [HERE Style Editor](https://www.here.com/docs/category/here-map-rendering)
+- [HERE SDK](https://www.here.com/docs/category/here-map-rendering)
+
+## Related guides
+
+<CardGroup cols={2}>
+  <Card title="Routing" href="/guides/routing">
+    Returning a polyline to draw on the map you just rendered.
+  </Card>
+  <Card title="Migrating from Google Maps" href="/guides/google-migration">
+    Rendering is the most user-visible surface. Migrate it last.
+  </Card>
+  <Card title="HERE Pricing Explained" href="/start-here/here-pricing-explained">
+    Session versus request billing, and why it matters here.
+  </Card>
+  <Card title="Authentication" href="/start-here/authentication">
+    Domain restriction, key exposure, and the `403` that means "not entitled."
+  </Card>
+</CardGroup>
+
+Also: [Truck Routing](/guides/truck-routing) · [HERE vs Google Maps](/comparisons/here-vs-google-maps) · [HERE Location Services](https://placematic.com/here-location-services/)
+
+---
+
+Need production HERE API keys or implementation support?
+
+Placematic is an official HERE Technologies reseller and implementation partner helping companies choose the right HERE APIs, estimate usage, migrate from Google Maps and build production-ready geospatial solutions. [Talk to us](https://placematic.com/contact/).

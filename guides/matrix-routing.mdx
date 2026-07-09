@@ -1,46 +1,167 @@
 ---
-title: HERE Matrix Routing guide
-description: How to calculate travel times and distances at scale.
+title: "HERE Matrix Routing — Implementation Guide"
+description: "Implementing HERE Matrix Routing v8 — sync versus async, region definitions, when one call replaces ten thousand, and the loop that is costing you money right now."
 ---
 
-# HERE Matrix Routing guide
+# HERE Matrix Routing
 
-How to calculate travel times and distances at scale.
+If you are calling the Routing API in a loop to build a table of travel times, stop reading and open your billing dashboard. This page will pay for itself.
 
-<Note>
-This page is part of Placematic Developer Hub: practical guides for teams building with HERE Location Services.
-</Note>
+Matrix Routing computes travel times, distances, and consumptions between many origins and many destinations. One request. Not N×M.
 
-## Problem
+## What problem this guide solves
 
-Most location projects fail not because the API is unavailable, but because teams choose the wrong service, underestimate usage, or miss production details such as caching, monitoring, fallback logic and data quality.
+Depot-to-stop assignment. Nearest-driver dispatch. Service area analysis. Delivery zone economics. Every one of these needs a table of travel times, and every one of them is routinely built by looping a point-to-point routing API until the invoice arrives.
 
-## Practical approach
+A 200×3,000 matrix is 600,000 routing calls. Or it is one matrix request.
 
-Use this guide as a starting point for designing a production-ready location workflow. The final implementation depends on your product, request volume, regions, compliance needs and licensing model.
+## When to use Matrix Routing
 
-## Common questions
+- Assigning jobs to the nearest available vehicle
+- Depot-to-stop distance tables feeding an optimizer
+- Service-area or catchment analysis
+- Comparing candidate warehouse locations by aggregate drive time
+- Any question of the form "travel time between all of these and all of those"
 
-- Which HERE API should be used for this workflow?
-- How should request volume be estimated?
-- What should be cached?
-- What errors should be monitored in production?
-- How does this compare with Google Maps or other providers?
+## When NOT to use it
 
-## Production checklist
+- **A single A→B route with a polyline.** Use [Routing](/guides/routing). Matrix returns times and distances, not turn-by-turn geometry.
+- **Ordering stops into an itinerary.** Matrix gives you the cost table. Tour Planning solves the ordering. Feeding a matrix into your own solver is legitimate; expecting matrix to do the solving is not.
+- **Real-time UI where the user waits.** Large matrices are asynchronous by design. Submit, poll, retrieve.
 
-- Define your exact use case and required geography.
-- Estimate monthly and peak request volume.
-- Separate development and production keys.
-- Add error handling and retry logic.
-- Log API errors and latency.
-- Review caching and data retention rules.
-- Validate pricing before launch.
+## The endpoint
 
-## Need production HERE API keys?
+Matrix Routing v8 lives at `https://matrix.router.hereapi.com/v8`, with `/matrix` for submission. It supports both `apiKey` (query parameter) and Bearer token authentication.
 
-Placematic is a HERE Technologies reseller and implementation partner. We help companies choose the right HERE APIs, estimate usage, configure production keys and migrate from Google Maps or other location platforms.
+<Info>
+The OpenAPI specification is published at `https://matrix.router.hereapi.com/v8/openapi`. Read it before you build. It is authoritative in a way that any third-party guide, including this one, is not.
+</Info>
 
-<Card title="Talk to Placematic" icon="message-circle" href="https://placematic.com/contact/">
-  Contact Placematic for HERE licensing, API keys, pricing and implementation support.
-</Card>
+The service operates in three modes, selected by the `regionDefinition` and `profile` parameters:
+
+| Mode | Selected by | Notes |
+|---|---|---|
+| **Flexible** | `regionDefinition` type | Full routing options; smaller ceilings |
+| **Region** | Bounded region (e.g. `circle`) | Larger matrices within a bounded area |
+| **Profile** | `profile` parameter | Predefined vehicle profiles |
+
+The capabilities and limits of each mode differ meaningfully. HERE documents the trade-offs in the [Matrix Routing v8 category](https://www.here.com/docs/category/matrix-routing-api-v8).
+
+## Sync and async
+
+Matrix calculation is available synchronously and asynchronously. Async is the mode that matters at production scale.
+
+The flow, per HERE's specification:
+
+1. `POST` the matrix request
+2. Receive a `matrixId` and a `statusUrl`
+3. Poll the `statusUrl` — **use the URL HERE returns, not one you construct**
+4. On completion, retrieve the result
+
+The response contains `numOrigins`, `numDestinations`, and flat arrays `travelTimes` and `distances`.
+
+<Warning>
+The result arrays are **flat and row-major**, not nested. A 2×2 matrix returns `travelTimes: [73, 1231, 983, 400]`. Index into it as `travelTimes[originIndex * numDestinations + destinationIndex]`. Getting this wrong produces a matrix that is silently transposed — every travel time is plausible, and every assignment is wrong.
+</Warning>
+
+This failure mode is the reason matrix bugs survive code review. Nothing crashes.
+
+## What are the size limits?
+
+<Warning>
+Matrix size ceilings depend on the mode you select (flexible, region, or profile), on whether you call synchronously or asynchronously, and on your entitlement. Published figures vary and are frequently quoted out of context.
+
+Do not architect against a number from a blog post — including any number quoted on a vendor comparison page. Read the [OpenAPI specification](https://matrix.router.hereapi.com/v8/openapi) and confirm the ceiling for your mode and your contract before you commit to a design.
+</Warning>
+
+The practically important fact is directional and uncontested: matrix mode handles origin-destination sets at a scale where looping point-to-point routing is not merely more expensive but architecturally infeasible.
+
+## Production architecture
+
+**Async is not a synchronous call with a wait.** Submit, get an ID, return control to your caller, poll on a worker. Wrapping this in a blocking facade with a 30-second timeout reproduces every problem async was designed to eliminate.
+
+**Persist the `matrixId`.** If your process dies mid-poll, you need to resume, not resubmit. Resubmitting bills again.
+
+**Follow `statusUrl` exactly as returned.** HERE explicitly warns against constructing it. It may redirect to the result on completion.
+
+**Handle `429` on submission.** Concurrent job limits exist. Back off; do not hammer.
+
+**Truck parameters apply.** Matrix accepts truck mode and vehicle constraints — the same `grossWeight`, `axleCount`, and dimensional parameters described in [Truck Routing](/guides/truck-routing). A truck matrix built from car travel times is wrong in exactly the way a car route is wrong for a truck.
+
+**Cache matrices keyed on the input set.** Depot locations rarely move. If neither the origins, the destinations, nor the departure time changed, the matrix did not change.
+
+## Cost and usage considerations
+
+Matrix operations are where the cost gap against Google is widest, and where the gap against your own looping implementation is widest of all.
+
+Run the arithmetic before you optimize anything else:
+
+- Count your current routing calls that exist solely to populate a distance table
+- That number, divided by the matrices it should have been, is your multiplier
+
+Where teams overspend:
+
+- Rebuilding an unchanged depot matrix nightly
+- Computing a full matrix when a bounded region would have sufficed
+- Requesting `consumptions` when only `travelTimes` is consumed downstream
+- Submitting one matrix per vehicle when one matrix per depot would serve all of them
+
+See [HERE Pricing Explained](/start-here/here-pricing-explained).
+
+## Common mistakes
+
+**Looping the Routing API.** The reason this page exists.
+
+**Indexing the flat result array as if it were nested.** Silently transposed. Nothing errors.
+
+**Constructing the `statusUrl` instead of using the returned one.**
+
+**Blocking on an async job.** Timeouts, retries, duplicate submissions, double billing.
+
+**Losing the `matrixId` on process restart.** Resubmission is a full recharge.
+
+**Building a truck matrix in car mode.** Wrong times, wrong assignments, wrong dispatch.
+
+**Architecting against a size ceiling read from a comparison table.** Read the spec.
+
+**Requesting fields nothing downstream reads.**
+
+## Best practices
+
+- Treat async as async: submit, persist the ID, poll on a worker
+- Follow `statusUrl` verbatim
+- Write one indexing helper for the flat arrays and unit-test it against a known 2×2
+- Cache on the hash of the input set
+- Pass truck parameters when routing trucks
+- Request only the fields you consume
+- Confirm mode-specific size limits against the OpenAPI spec and your entitlement
+
+## API reference
+
+- [Matrix Routing API v8](https://www.here.com/docs/category/matrix-routing-api-v8)
+- [OpenAPI specification](https://matrix.router.hereapi.com/v8/openapi) — authoritative on limits, modes, and parameters
+
+## Related guides
+
+<CardGroup cols={2}>
+  <Card title="Routing" href="/guides/routing">
+    Point-to-point. What matrix is not.
+  </Card>
+  <Card title="Truck Routing" href="/guides/truck-routing">
+    Vehicle constraints, which matrix also accepts.
+  </Card>
+  <Card title="Choosing the Right HERE APIs" href="/start-here/choosing-the-right-here-apis">
+    Routing versus matrix versus tour planning, decided by the question.
+  </Card>
+  <Card title="HERE Pricing Explained" href="/start-here/here-pricing-explained">
+    Matrix is the single largest cost lever available to most fleet platforms.
+  </Card>
+</CardGroup>
+
+Also: [EV Routing](/guides/ev-routing) · [HERE vs Google Maps](/comparisons/here-vs-google-maps) · [Authentication](/start-here/authentication)
+
+---
+
+Need production HERE API keys or implementation support?
+
+Placematic is an official HERE Technologies reseller and implementation partner helping companies choose the right HERE APIs, estimate usage, migrate from Google Maps and build production-ready geospatial solutions. [Talk to us](https://placematic.com/contact/).

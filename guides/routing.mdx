@@ -1,46 +1,188 @@
 ---
-title: HERE Routing API guide
-description: How to use routing APIs in logistics, mobility and business applications.
+title: "HERE Routing API — Implementation Guide"
+description: "How to implement HERE Routing v8 in production — transport modes, request shaping, cost control, and the mistakes that surface only after launch."
 ---
 
-# HERE Routing API guide
+# HERE Routing API
 
-How to use routing APIs in logistics, mobility and business applications.
+The Routing API answers one question: how does a vehicle get from A to B, and how long will it take.
 
-<Note>
-This page is part of Placematic Developer Hub: practical guides for teams building with HERE Location Services.
-</Note>
+It does not answer "what is the travel time between these 200 depots and 3,000 stops" — that is [Matrix Routing](/guides/matrix-routing). It does not answer "what order should I visit these stops in" — that is Tour Planning. Confusing the three is the most expensive mistake in this domain, and it is made in week one.
 
-## Problem
+## What problem this guide solves
 
-Most location projects fail not because the API is unavailable, but because teams choose the wrong service, underestimate usage, or miss production details such as caching, monitoring, fallback logic and data quality.
+You have coordinates. You need a path, a duration, and a distance. You need them to be correct for the vehicle you are actually dispatching, and you need the bill to be predictable.
 
-## Practical approach
+HERE's reference documentation tells you what every parameter is called. This guide tells you which ones you cannot afford to omit, and why the response looked fine in staging.
 
-Use this guide as a starting point for designing a production-ready location workflow. The final implementation depends on your product, request volume, regions, compliance needs and licensing model.
+## When to use HERE Routing
 
-## Common questions
+- Point-to-point navigation with turn-by-turn instructions
+- ETA calculation with real-time or predictive traffic
+- Commercial vehicle routing where physical constraints matter — see [Truck Routing](/guides/truck-routing)
+- Route shaping through intermediate waypoints
+- Rendering a route polyline on a map — see [Maps](/guides/maps)
 
-- Which HERE API should be used for this workflow?
-- How should request volume be estimated?
-- What should be cached?
-- What errors should be monitored in production?
-- How does this compare with Google Maps or other providers?
+## When NOT to use it
 
-## Production checklist
+<Warning>
+If you are writing a loop around the Routing API, you have chosen the wrong product. You are building either a matrix or an optimizer, and both exist as separate, cheaper, faster APIs.
+</Warning>
 
-- Define your exact use case and required geography.
-- Estimate monthly and peak request volume.
-- Separate development and production keys.
-- Add error handling and retry logic.
-- Log API errors and latency.
-- Review caching and data retention rules.
-- Validate pricing before launch.
+- **Many-to-many travel times.** Use [Matrix Routing](/guides/matrix-routing). N×M routing calls is slower and costs more.
+- **Multi-stop optimization with time windows, capacities, or driver shifts.** Use Tour Planning. It is a solver, not a router.
+- **Snapping a GPS trace to roads.** That is Route Matching, a different API.
+- **Consumer place discovery.** Google's POI data is better and you should keep it. See [HERE vs Google Maps](/comparisons/here-vs-google-maps).
 
-## Need production HERE API keys?
+## Your first request
 
-Placematic is a HERE Technologies reseller and implementation partner. We help companies choose the right HERE APIs, estimate usage, configure production keys and migrate from Google Maps or other location platforms.
+<CodeGroup>
+```bash cURL
+curl -gX GET 'https://router.hereapi.com/v8/routes?'\
+'transportMode=car&'\
+'origin=52.5308,13.3847&'\
+'destination=52.5264,13.3686&'\
+'return=summary&'\
+'apiKey=YOUR_API_KEY'
+```
 
-<Card title="Talk to Placematic" icon="message-circle" href="https://placematic.com/contact/">
-  Contact Placematic for HERE licensing, API keys, pricing and implementation support.
-</Card>
+```python Python
+import os, requests
+
+resp = requests.get(
+    "https://router.hereapi.com/v8/routes",
+    params={
+        "transportMode": "car",
+        "origin": "52.5308,13.3847",
+        "destination": "52.5264,13.3686",
+        "return": "summary",
+        "apiKey": os.environ["HERE_API_KEY"],
+    },
+    timeout=10,
+)
+resp.raise_for_status()
+summary = resp.json()["routes"][0]["sections"][0]["summary"]
+print(summary["duration"], summary["length"])
+```
+
+```javascript Node.js
+const params = new URLSearchParams({
+  transportMode: "car",
+  origin: "52.5308,13.3847",
+  destination: "52.5264,13.3686",
+  return: "summary",
+  apiKey: process.env.HERE_API_KEY,
+});
+
+const resp = await fetch(`https://router.hereapi.com/v8/routes?${params}`);
+if (!resp.ok) throw new Error(`HERE returned ${resp.status}`);
+const { routes } = await resp.json();
+console.log(routes[0].sections[0].summary);
+```
+</CodeGroup>
+
+<Info>
+Coordinates are `lat,lng`. Not `lng,lat`. If you are migrating from a GeoJSON-based system, this will bite you exactly once.
+</Info>
+
+## Key concepts
+
+**Transport mode selects an engine.** `car`, `truck`, `pedestrian`, `bicycle`, `scooter`, `bus`, `privateBus`, `taxi`. Each has a different traversable network and different legal turn rules. `truck` is not `car` with a speed penalty.
+
+Some modes carry beta status with limited functionality. Check the [transport modes reference](https://www.here.com/docs/bundle/routing-api-developer-guide-v8/page/topics/transport-modes.html) before you build a product on one.
+
+**`return` controls both response size and cost of processing.** Requesting `polyline,actions,instructions,turnByTurnActions` when you needed `summary` inflates payloads by orders of magnitude. Set it explicitly. Always.
+
+**Waypoints use structured strings.** Values like `nameHint` can contain `&` and `!`, which collide with URL control characters. Encode them. HERE's own docs flag this as a common failure.
+
+**A failed route calculation returns HTTP 200.** If no path exists — the classic case being an ocean between origin and destination — you get a `notice` array with `routeCalculationFailed` and an empty `routes` array. Your error handling must check `routes.length`, not just the status code.
+
+<Warning>
+Checking only `resp.ok` will silently swallow route failures. `200` with `"routes": []` is a valid HERE response. Handle it.
+</Warning>
+
+## Production architecture
+
+**Set a timeout.** Routing calls with many waypoints and traffic enabled are not instantaneous. An unbounded client timeout in a dispatcher UI turns into a hung page.
+
+**Cache route geometry, not ETAs.** The path between two fixed points is stable for hours. The ETA is not. Cache them separately with different TTLs, or you will serve stale arrival times to drivers.
+
+**Decide where traffic matters.** Departure-time routing with live traffic is correct for dispatch. It is wasteful for a "how far is this customer" screen that nobody acts on.
+
+**Idempotency and retries.** `5xx` is transient — retry with exponential backoff and jitter. `403` is an entitlement failure and will never succeed. See [Authentication](/start-here/authentication).
+
+**Rate limits are a commercial parameter.** A `429` in production usually means your contracted quota does not match your workload, not that your code is wrong.
+
+## Cost and usage considerations
+
+Each route calculation is one billable transaction. There is no bundle across APIs — routing, geocoding, and tiles are three separate meters.
+
+Where teams overspend:
+
+- **Recomputing routes that did not change.** If neither origin, destination, nor departure time moved, do not call again.
+- **Calling routing on page load.** A dispatcher opens a screen showing 40 jobs; the frontend fires 40 routing calls. Nobody looks at 38 of them.
+- **Fetching `instructions` for backend ETA calculations.** Nothing consumes them.
+- **Building matrices in a loop.** The single largest avoidable cost. See [Matrix Routing](/guides/matrix-routing).
+
+See [HERE Pricing Explained](/start-here/here-pricing-explained) for how call volume and asset-based models differ, and which one your workload wants.
+
+## Common mistakes
+
+**Treating `200` as success.** Check `routes.length` and the `notice` array.
+
+**Omitting `return`.** You get a default response shape. It may change. Be explicit.
+
+**Reversing coordinate order.** `lat,lng`. GeoJSON is `lng,lat`. These are different.
+
+**Prototyping on `car`, shipping `truck`.** Different engine, different results, different failure modes. Validate against the mode you will deploy.
+
+**Retrying a `403`.** Patient, well-engineered, permanently futile.
+
+**Unencoded waypoint attributes.** `nameHint=Fish & Chips! St. 25` produces an ambiguous request.
+
+**Assuming beta modes are production-ready.** `bicycle`, `bus`, and `privateBus` carry beta status with limited functionality.
+
+## Best practices
+
+- Set `return` explicitly on every call
+- Check `routes.length` before reading `routes[0]`
+- Separate geometry caching from ETA caching
+- Retry `5xx` with backoff and jitter; never retry `403`
+- Log the endpoint alongside the status code
+- Validate the transport mode you will ship, not the one that was convenient to test
+- Encode waypoint attribute values
+
+## API reference
+
+Complete parameter tables, response schemas, and enum values are maintained by HERE:
+
+- [Routing API v8 developer guide](https://www.here.com/docs/bundle/routing-api-developer-guide-v8/page/get-started.html)
+- [Routing API v8 reference](https://www.here.com/docs/bundle/routing-api-v8-api-reference/page/index.html)
+- [Transport modes](https://www.here.com/docs/bundle/routing-api-developer-guide-v8/page/topics/transport-modes.html)
+
+We do not duplicate them.
+
+## Related guides
+
+<CardGroup cols={2}>
+  <Card title="Truck Routing" href="/guides/truck-routing">
+    Physical constraints, and why omitting them produces a route no truck can drive.
+  </Card>
+  <Card title="Matrix Routing" href="/guides/matrix-routing">
+    When one call replaces ten thousand.
+  </Card>
+  <Card title="EV Routing" href="/guides/ev-routing">
+    Charge state and consumption as routing inputs.
+  </Card>
+  <Card title="Choosing the Right HERE APIs" href="/start-here/choosing-the-right-here-apis">
+    Routing, matrix, and tour planning are not interchangeable.
+  </Card>
+</CardGroup>
+
+Also: [Authentication](/start-here/authentication) · [HERE Pricing Explained](/start-here/here-pricing-explained) · [Maps](/guides/maps)
+
+---
+
+Need production HERE API keys or implementation support?
+
+Placematic is an official HERE Technologies reseller and implementation partner helping companies choose the right HERE APIs, estimate usage, migrate from Google Maps and build production-ready geospatial solutions. [Talk to us](https://placematic.com/contact/).

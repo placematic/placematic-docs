@@ -1,46 +1,204 @@
 ---
-title: HERE Geocoding guide
-description: How to convert addresses into coordinates for business systems.
+title: "HERE Geocoding and Search — Implementation Guide"
+description: "Implementing HERE Geocoding & Search v7 — geocode, autocomplete, autosuggest, discover, batch jobs, and the caching decision that halves most geocoding bills."
 ---
 
-# HERE Geocoding guide
+# HERE Geocoding and Search
 
-How to convert addresses into coordinates for business systems.
+Half of what teams call a geocoding cost problem is a geocoding *caching* problem.
 
-<Note>
-This page is part of Placematic Developer Hub: practical guides for teams building with HERE Location Services.
-</Note>
+Addresses do not move. Re-geocoding the same customer address on every order is the most common avoidable spend on this entire platform, and it is fixed with a database column.
 
-## Problem
+## What problem this guide solves
 
-Most location projects fail not because the API is unavailable, but because teams choose the wrong service, underestimate usage, or miss production details such as caching, monitoring, fallback logic and data quality.
+You have address text. You need coordinates, a normalized address, and a confidence signal. You may also need type-ahead in a UI, or a free-text place search, or to process a million rows overnight.
 
-## Practical approach
+These are four different endpoints with four different cost profiles, and teams routinely use the most expensive one for all four jobs.
 
-Use this guide as a starting point for designing a production-ready location workflow. The final implementation depends on your product, request volume, regions, compliance needs and licensing model.
+## The endpoint family
 
-## Common questions
+HERE Geocoding & Search v7 exposes distinct endpoints for distinct jobs:
 
-- Which HERE API should be used for this workflow?
-- How should request volume be estimated?
-- What should be cached?
-- What errors should be monitored in production?
-- How does this compare with Google Maps or other providers?
+| Endpoint | Job |
+|---|---|
+| `/geocode` | Known address or place → coordinates. Structured, unstructured, or hybrid queries. |
+| `/revgeocode` | Coordinates → nearest address. See [Reverse Geocoding](/guides/reverse-geocoding). |
+| `/autocomplete` | Completes keystrokes to a valid street address or administrative area. |
+| `/autosuggest` | Suggests address or place candidates from incomplete or misspelled input. |
+| `/discover` | Free-form text query, results ranked by relevance. |
+| `/browse` | Places filtered by category or name, ranked by distance from a centre. |
+| `/lookup` | Retrieve a known place by its HERE ID. |
 
-## Production checklist
+<Info>
+`/autocomplete` and `/autosuggest` are not synonyms. Autocomplete completes *addresses*. Autosuggest handles misspellings and suggests *places*. Picking the wrong one produces a type-ahead that feels broken to users and correct to engineers.
+</Info>
 
-- Define your exact use case and required geography.
-- Estimate monthly and peak request volume.
-- Separate development and production keys.
-- Add error handling and retry logic.
-- Log API errors and latency.
-- Review caching and data retention rules.
-- Validate pricing before launch.
+Full endpoint list and base URL: [HERE Geocoding and Search API v7 endpoints](https://www.here.com/docs/bundle/geocoding-and-search-api-v7-api-reference/page/index.html).
 
-## Need production HERE API keys?
+<Warning>
+Confirm the base host for your account against HERE's endpoint documentation before hardcoding it. Hosts differ by product and have changed across versions. We deliberately do not reproduce one here rather than risk publishing a stale value.
+</Warning>
 
-Placematic is a HERE Technologies reseller and implementation partner. We help companies choose the right HERE APIs, estimate usage, configure production keys and migrate from Google Maps or other location platforms.
+## When to use each
 
-<Card title="Talk to Placematic" icon="message-circle" href="https://placematic.com/contact/">
-  Contact Placematic for HERE licensing, API keys, pricing and implementation support.
-</Card>
+**`/geocode`** — Server-side address resolution. Batch imports where each record is a full address. Anywhere you have a complete address and need a point.
+
+**`/autocomplete`** — Address entry fields. Checkout. Dispatcher address input. Cheap, fast, address-scoped.
+
+**`/autosuggest`** — Search boxes where users type place names, misspell things, or type partial categories. Handles spelling correction and term completion.
+
+**`/discover`** — Free-text search where the user's intent is unstructured. "Coffee near Wrigley Field."
+
+**`/browse`** — Category-filtered place lists ranked by distance. Store finders. "Show me pharmacies within 2 km."
+
+**Batch API v7** — Any workload where nothing is waiting. See below.
+
+## When NOT to use HERE geocoding
+
+Be honest about this before you migrate.
+
+<Warning>
+For **consumer place discovery** — business names, hours, reviews, photos, categories — Google's data is better. Not marginally. Categorically. If your product answers "what's a good restaurant near me," keep Google for that surface.
+</Warning>
+
+HERE is strong on **street addresses**. It is adequate on POIs. Choose per use case, not per vendor. A hybrid architecture — HERE for address resolution and routing, Google for place discovery — is a defensible and common outcome. See [HERE vs Google Maps](/comparisons/here-vs-google-maps).
+
+Also skip HERE geocoding when:
+
+- You are geocoding fewer than ~10k addresses a month. The savings are a rounding error against migration cost.
+- The address is already geocoded and cached. Which brings us to the main point.
+
+## Real-time versus batch
+
+Same data. Different product. Materially different price.
+
+**Batch API v7 is a job API**, not a bulk endpoint. The lifecycle is explicit:
+
+1. `POST` to create a job → returns `201` with a job ID
+2. Start the job
+3. Poll job status
+4. Retrieve results as a downloadable stream
+5. Retrieve errors separately, if any
+6. Delete the job
+
+HERE documents [job status](https://www.here.com/docs/bundle/batch-api-v7-developer-guide/page/topics/job-status.html), [job lifecycle](https://www.here.com/docs/bundle/batch-api-v7-developer-guide/page/topics/job-lifecycle.html), and [limits and performance](https://www.here.com/docs/bundle/batch-api-v7-developer-guide/page/topics/limits-and-performance.html) as separate concerns. Read all three before building.
+
+Notable behaviours worth knowing before you architect:
+
+- Exceeding the concurrent job limit returns `429` on job start
+- A completed job with no errors returns `204` on the errors endpoint, not an empty `200`
+- Results are not available until the job succeeds; querying early returns `404`
+- Gzip compression is supported and worth using on large inputs
+- Webhook notifications on completion exist in beta, with substitutable placeholders like `${JOB_ID}` and `${JOB_STATUS}`
+
+**The tell:** if the geocoding result is written to a database rather than rendered to a screen, it should have been batched.
+
+## Caching: the section that saves you money
+
+Do this before you evaluate any vendor.
+
+**Cache in your own datastore, not in a request-scoped memo.** Store the normalized address, coordinates, HERE ID, and a result-quality signal alongside the customer or location record.
+
+**Key on the normalized address, not the raw input.** `123 Main St` and `123 Main Street` should hit the same cache entry.
+
+**Set a long TTL.** Buildings persist. Rebuild the cache when HERE ships significant map updates, not on a two-week schedule because it felt prudent.
+
+**Store the confidence signal.** HERE returns result scoring and result types. A low-confidence match is a data quality problem you want surfaced, not silently persisted as truth.
+
+<Tip>
+Instrument cache hit rate before you instrument anything else. A team with a 12% hit rate does not have a pricing problem.
+</Tip>
+
+## Production architecture
+
+**Normalize before you geocode.** Trimming, case-folding, and expanding abbreviations at write time increases cache hit rate for free.
+
+**Use result types to filter.** HERE distinguishes address results from place results and supports filtering by type. An address field that accepts a place result will store a shopping centre where a street address belonged.
+
+**Handle house-number fallback deliberately.** HERE supports falling back when an exact house number is unavailable. Whether that fallback is acceptable depends on whether you are shipping a parcel or scoring a site. Decide explicitly.
+
+**Country filtering narrows results and reduces ambiguity.** If your product operates in one market, say so in the request.
+
+**Political views matter for disputed territories.** HERE exposes political view handling. If you serve multiple markets, this is a legal and product decision, not a technical default.
+
+**Rate limits are commercial.** A persistent `429` means your quota does not match your workload. See [Authentication](/start-here/authentication).
+
+## Cost and usage considerations
+
+Each request is one billable transaction. Autocomplete fires on keystrokes — a naive implementation bills once per character typed.
+
+Where teams overspend:
+
+- **No cache.** The largest single item, every time.
+- **Autocomplete without debouncing.** Debounce at 200–300ms. Do not fire on every keypress.
+- **Real-time geocoding for overnight work.** Batch is cheaper per record.
+- **Autosuggest where autocomplete would do.** Different endpoints, different costs.
+- **Geocoding on every order for a stable customer address.**
+
+Geocoding-heavy workloads see the largest savings when moving from Google — typically 80%+ at production volume — but only after you have fixed the call pattern. Migrating an uncached, undebounced implementation just moves the waste to a cheaper meter.
+
+See [HERE Pricing Explained](/start-here/here-pricing-explained).
+
+## Common mistakes
+
+**No persistent cache.** Fix this first, on whatever platform you are on.
+
+**Autocomplete on every keystroke.** Debounce.
+
+**Confusing `/autocomplete` with `/autosuggest`.** Addresses versus places.
+
+**Using real-time endpoints for batch workloads.** Use the Batch API.
+
+**Treating Batch API as a synchronous bulk endpoint.** It is a job lifecycle. Poll it.
+
+**Polling batch results before job completion.** `404` is expected, not an error to retry aggressively.
+
+**Storing a low-confidence match as truth.** Persist the score.
+
+**Accepting a place result in an address field.** Filter by result type.
+
+**Expecting Google-quality POI data.** You will not get it. Plan the hybrid.
+
+## Best practices
+
+- Cache normalized address → coordinates in your own database, with a long TTL
+- Debounce autocomplete input
+- Batch anything that tolerates latency
+- Filter by result type and by country
+- Persist and act on the confidence score
+- Decide house-number fallback policy explicitly
+- Read the Batch API limits page before designing the job pipeline
+- Keep Google for consumer place discovery if that is your product
+
+## API reference
+
+- [Introduction to HERE Geocoding & Search API v7](https://www.here.com/docs/bundle/geocoding-and-search-api-v7-api-reference/page/index.html)
+- [Endpoint list](https://www.here.com/docs/bundle/geocoding-and-search-api-v7-api-reference/page/index.html)
+- [Batch API v7 quick start](https://www.here.com/docs/bundle/batch-api-v7-developer-guide/page/topics/batch-api-quick-start.html)
+- [Batch API limits and performance](https://www.here.com/docs/bundle/batch-api-v7-developer-guide/page/topics/limits-and-performance.html)
+- [Result types](https://www.here.com/docs/bundle/geocoding-and-search-api-v7-api-reference/page/index.html)
+
+## Related guides
+
+<CardGroup cols={2}>
+  <Card title="Reverse Geocoding" href="/guides/reverse-geocoding">
+    Coordinates to addresses — the telematics workload with its own failure modes.
+  </Card>
+  <Card title="Migrating from Google Maps" href="/guides/google-migration">
+    Geocoding is the smallest surface and the largest saving. Migrate it first.
+  </Card>
+  <Card title="HERE Pricing Explained" href="/start-here/here-pricing-explained">
+    Why batch and cache decisions dominate your bill.
+  </Card>
+  <Card title="Choosing the Right HERE APIs" href="/start-here/choosing-the-right-here-apis">
+    Seven search endpoints, one correct choice per job.
+  </Card>
+</CardGroup>
+
+Also: [Authentication](/start-here/authentication) · [HERE vs Google Maps](/comparisons/here-vs-google-maps)
+
+---
+
+Need production HERE API keys or implementation support?
+
+Placematic is an official HERE Technologies reseller and implementation partner helping companies choose the right HERE APIs, estimate usage, migrate from Google Maps and build production-ready geospatial solutions. [Talk to us](https://placematic.com/contact/).

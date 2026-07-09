@@ -1,0 +1,162 @@
+---
+title: "HERE Route Matching — Implementation Guide"
+description: "Map-matching GPS traces to the road network with HERE — why reverse geocoding cannot do this, IFTA and compliance workloads, and the difference between where a vehicle was and where it drove."
+---
+
+# HERE Route Matching
+
+Route Matching takes a sequence of noisy GPS positions and returns the road segments the vehicle actually travelled.
+
+That is a different question from "what is the nearest address to this coordinate," and the distinction is the whole guide.
+
+## What problem this guide solves
+
+A GPS trace is a cloud of points with 5–15 metres of error, sampled at intervals during which a vehicle may have travelled several hundred metres. On a divided highway, adjacent points can appear on opposite carriageways. At an interchange, a point can sit between three roads.
+
+You need to know which road. Not which address — which **road segment**, in sequence, with the attributes attached to it.
+
+<Warning>
+[Reverse geocoding](/guides/reverse-geocoding) resolves a coordinate to a nearby address. It cannot tell you which road the vehicle drove, and it cannot survive an audit. These are different APIs solving different problems, and conflating them is common.
+</Warning>
+
+## When to use Route Matching
+
+- **IFTA reporting** — miles driven per jurisdiction, defensible under audit
+- **ELD and hours-of-service** — reconstructing the driven route from telematics
+- **Speed compliance** — comparing observed speed against the posted limit on the *actual* segment
+- **Toll reconciliation** — determining whether a tolled segment was used
+- **Trip reconstruction after an incident**
+- **Attributing driven distance to road classes** for cost modelling
+- **Cleaning noisy traces before analytics**
+
+## When NOT to use it
+
+- **Displaying a vehicle's current position.** A marker on a map does not need map matching.
+- **Getting a human-readable location.** That is [reverse geocoding](/guides/reverse-geocoding).
+- **Planning a route.** Route Matching is retrospective. [Routing](/guides/routing) is prospective.
+- **Geofence entry/exit detection.** That is a spatial containment test against your own polygons.
+- **Traces with very sparse sampling.** Ten-minute intervals across a city leave the matcher guessing between many plausible paths. Fix the sampling rate first, or accept that the output is an inference.
+
+## Key concepts
+
+**Map matching is inference, not lookup.** The algorithm chooses the most probable path given the observations and the network topology. It can be wrong. It is more likely to be wrong where the network is dense, the sampling is sparse, and the GPS error is large — which is to say, downtown.
+
+**Sampling rate is the dominant quality input.** More frequent positions constrain the possible paths. This is a telematics configuration decision that determines your matching quality before any API is called.
+
+**The output is segments with attributes.** Speed limits, functional class, and other road attributes attach to the matched segments. This is what makes compliance workloads possible, and it is what reverse geocoding cannot give you.
+
+**Speed compliance requires the matched segment.** Comparing a GPS-derived speed against the limit on the *nearest* road, rather than the *travelled* road, produces false violations on service roads parallel to highways. Drivers notice. So do lawyers.
+
+**Trace direction matters.** Heading disambiguates carriageway. If your telematics feed includes it, provide it.
+
+**Order is meaningful.** A trace is a sequence, not a set. Points must be supplied in temporal order, with timestamps.
+
+## Code examples
+
+<Info>
+HERE's map matching capability is delivered through the Routing product family, with a distinct request pattern for trace submission. Endpoint paths and trace formats are versioned.
+
+Rather than publish a request we cannot verify against your entitlement, start from HERE's maintained reference:
+
+- [HERE Routing documentation](https://www.here.com/docs/category/routing-api-v8)
+- [Routing API v8 reference](https://www.here.com/docs/bundle/routing-api-v8-api-reference/page/index.html)
+
+Placematic scopes a working trace-matching request against your telematics format during a pilot. Authentication follows the pattern in [Authentication](/start-here/authentication).
+</Info>
+
+## Production architecture
+
+**Match on trip close, not on ping arrival.** A trip is the unit. Matching a partial trace and then re-matching it as points arrive burns transactions and produces inconsistent history.
+
+**This is a batch workload.** Nothing is waiting. Match yesterday's trips overnight. Latency is worth nothing to you here, and it costs money.
+
+**Store the matched result, not just the raw trace.** Re-matching for a report six months later bills again and may produce a different answer against an updated map.
+
+**Store the raw trace too.** When an auditor disputes the matched path, you need the observations.
+
+**Version your matched output against the map release.** A trip matched in March against a March map may match differently in September. For compliance records, that matters. Record which map release produced the result.
+
+**Fix your sampling rate before you tune anything else.** No API compensates for a ten-minute ping interval.
+
+**Handle low-confidence matches explicitly.** A trace through a dense interchange may have several plausible interpretations. Surface the uncertainty rather than persisting a guess as fact.
+
+<Tip>
+For IFTA specifically: the defensible artifact is raw trace + matched segments + map release version + timestamp of matching. Anything less is an assertion.
+</Tip>
+
+## Cost and usage considerations
+
+Route Matching bills as a routing-family transaction, and traces are large.
+
+Where teams overspend:
+
+- **Matching on every ping.** Match trips, not packets. This mirrors the [reverse geocoding](/guides/reverse-geocoding) failure exactly.
+- **Re-matching for every report.** Store the result.
+- **Real-time matching for retrospective reporting.** Batch it overnight.
+- **Matching idle time.** A vehicle parked for four hours emits thousands of points that describe a parking space. Segment trips first, then match the moving portions.
+- **Sub-second sampling submitted raw.** Downsample before matching. Beyond a certain density, additional points add cost and no information.
+
+The trip-segmentation-before-matching step routinely removes 40–60% of submitted points in real telematics feeds. Do it in your pipeline, not in HERE's.
+
+See [HERE Pricing Explained](/start-here/here-pricing-explained).
+
+## Common mistakes
+
+**Using reverse geocoding to snap traces to roads.** It returns addresses. Audits ask about road segments.
+
+**Matching packets instead of trips.**
+
+**Submitting the parked portion of a trace.** Segment first.
+
+**Ignoring sampling rate and blaming the matcher.** Garbage in.
+
+**Real-time matching for overnight reports.**
+
+**Not persisting the raw trace.** The matched output is a derivation. Keep the source.
+
+**Not recording the map release version** on compliance records.
+
+**Comparing GPS speed against the nearest road's limit** rather than the matched segment's. False violations on frontage roads.
+
+**Treating a low-confidence match as certain.**
+
+## Best practices
+
+- Segment trips before matching; drop idle periods
+- Downsample dense traces before submission
+- Match as a batch job on trip close
+- Persist raw trace, matched segments, map release, and match timestamp
+- Provide heading when telematics supplies it
+- Fix sampling rate at the device before tuning anything upstream
+- Surface low-confidence matches rather than persisting them silently
+- Use matched segments — not nearest roads — for speed compliance
+
+## API reference
+
+- [HERE Routing API v8](https://www.here.com/docs/category/routing-api-v8)
+- [Routing API v8 reference](https://www.here.com/docs/bundle/routing-api-v8-api-reference/page/index.html)
+
+## Related guides
+
+<CardGroup cols={2}>
+  <Card title="Reverse Geocoding" href="/guides/reverse-geocoding">
+    Coordinates to addresses. The API teams reach for when they need this one.
+  </Card>
+  <Card title="Truck Routing" href="/guides/truck-routing">
+    The prospective half of most ELD integrations.
+  </Card>
+  <Card title="HERE Pricing Explained" href="/start-here/here-pricing-explained">
+    Trace volume is the largest input to telematics API spend.
+  </Card>
+  <Card title="Choosing the Right HERE APIs" href="/start-here/choosing-the-right-here-apis">
+    Retrospective versus prospective, address versus segment.
+  </Card>
+</CardGroup>
+
+Also: [Positioning](/guides/positioning) · [Authentication](/start-here/authentication) · [Route Matching API](https://placematic.com/here-location-services/here-route-matching/)
+
+---
+
+Need production HERE API keys or implementation support?
+
+Placematic is an official HERE Technologies reseller and implementation partner helping companies choose the right HERE APIs, estimate usage, migrate from Google Maps and build production-ready geospatial solutions. We have deployed HERE into production ELD systems. [Talk to us](https://placematic.com/contact/).

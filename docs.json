@@ -53,7 +53,16 @@
           "guides/geocoding",
           "guides/reverse-geocoding",
           "guides/maps",
-          "guides/address-validation"
+          "guides/tour-planning",
+          "guides/catchment-area",
+          "guides/route-matching",
+          "guides/positioning",
+          "guides/batch-geocoding",
+          "guides/points-of-interest",
+          "guides/here-sdk",
+
+
+          "guides/google-migration"
         ]
       },
       {

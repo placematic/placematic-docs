@@ -1,0 +1,174 @@
+---
+title: "HERE Points of Interest — Implementation Guide"
+description: "Working with HERE POI data — discover, browse, and lookup endpoints, truck-relevant POIs, and an honest assessment of where Google's place data is simply better."
+---
+
+# HERE Points of Interest
+
+Start with the honest part.
+
+**For consumer place discovery — business names, opening hours, reviews, photos, categories — Google's data is better than HERE's. Not marginally. Categorically.** If your product answers "what's a good restaurant near me," keep Google for that surface.
+
+Placematic sells HERE. We would rather you know this now than discover it after a migration.
+
+## Where HERE POI data is the right choice
+
+**Truck-relevant POIs.** Truck stops, weigh stations, rest areas, hazmat-approved parking, height-restricted structures, service areas with commercial vehicle access. This is data that exists in HERE's transport-attributed map and does not meaningfully exist in a consumer places database.
+
+**Your own locations.** If the POIs you care about are your stores, depots, or service points, the platform's public place database is irrelevant. You need a store locator over your own data — see [Pos-Eye](https://placematic.com/here-location-services/#maps).
+
+**Category-filtered proximity queries** where address-grade accuracy matters more than review counts.
+
+**Bundled economics.** If you are already licensing HERE for routing and geocoding, POI queries ride the same contract. A modest place-lookup need may not justify a second vendor relationship.
+
+## When NOT to use it
+
+<Warning>
+Do not migrate a consumer place-search feature to HERE to save money. Your users will notice the missing hours, thinner categories, and absent reviews. Cost savings on a feature people stop using is not savings.
+</Warning>
+
+- **Consumer restaurant, retail, or entertainment discovery.** Google.
+- **Anything depending on reviews, ratings, or photos.** HERE has no comparable product.
+- **Business hours as a primary feature.** Coverage and freshness differ.
+- **Street View or equivalent imagery.** Does not exist.
+- **Containment checks against your own zones.** That is a spatial query in your own database, not a POI lookup. See [Catchment Area](/guides/catchment-area).
+
+## The endpoints
+
+POI access lives in HERE Geocoding & Search v7. Three endpoints, three different jobs.
+
+| Endpoint | Job |
+|---|---|
+| `/discover` | Free-text query. Results ranked by **relevance**. "coffee near Wrigley Field" |
+| `/browse` | Filter by category or name. Results ranked by **distance** from a centre. "pharmacies within 2 km" |
+| `/lookup` | Retrieve a known place by its HERE ID |
+
+<Info>
+`/discover` ranks by relevance. `/browse` ranks by distance. Choosing wrong produces a store finder whose nearest store is third in the list, or a search box that returns the closest match instead of the best one. This is the most common POI integration bug.
+</Info>
+
+`/autosuggest` also returns place candidates and handles misspellings — see [Geocoding and Search](/guides/geocoding) for how it differs from `/autocomplete`.
+
+<Warning>
+Confirm the base host for your account against HERE's endpoint documentation before hardcoding it. Hosts differ by product and have changed across versions. We do not reproduce one here rather than risk publishing a stale value.
+</Warning>
+
+## Key concepts
+
+**Every place has a HERE ID.** Store it. Re-searching for a place you have already resolved is the POI equivalent of not caching geocoding results. Use `/lookup` when you have the ID.
+
+**Category taxonomies do not map across vendors.** HERE's categories are not Google's categories with different names. A migration that assumes a mapping table will produce silently wrong filters.
+
+**Result types are filterable.** A query near a shopping centre may return the centre, not a street address. If you need one and not the other, filter explicitly.
+
+**Spatial filters change the question.** A circular filter around a centre point is not the same as a bounding box, and neither is the same as "along this route." Choose deliberately.
+
+**Truck POI attributes come from the transport map.** They are not a category filter over consumer places. If you need weigh stations and truck parking, that is what you are licensing.
+
+**POI freshness is a data-release property.** Base map data ships on a release cadence. A restaurant that opened last week is not in this week's map.
+
+## Code examples
+
+<Info>
+Geocoding & Search v7 host, parameter names, and category identifiers are versioned. We do not publish requests against a host we have not verified for your entitlement.
+
+Start from HERE's maintained reference:
+
+- [HERE Geocoding & Search v7 API reference](https://www.here.com/docs/bundle/geocoding-and-search-api-v7-api-reference/page/index.html)
+- [HERE Geocoding & Search documentation](https://www.here.com/docs/category/geocoding-search-api-v7)
+
+Authentication follows [Authentication](/start-here/authentication).
+</Info>
+
+## Production architecture
+
+**Cache place records by HERE ID.** Places move slowly. Your users search for the same ones repeatedly.
+
+**Debounce user-facing search.** A search box that fires on every keystroke bills once per character. 200–300ms.
+
+**Do not use POI search for containment.** "Is this address in our delivery zone" is a `ST_Contains` query against a stored polygon, not a places query. See [Catchment Area](/guides/catchment-area).
+
+**Separate your own locations from public POIs.** Your stores belong in your database. Querying a public place index for them is fragile and expensive.
+
+**For truck stop planning, join POIs to routes, not to circles.** "Truck stops within 10 km of the driver" is a different question from "truck stops along the remaining route," and the second one is the one dispatchers ask.
+
+**Model the taxonomy explicitly if you support both vendors.** Do not let category strings flow through untranslated.
+
+<Tip>
+The hybrid architecture that works: HERE for routing, geocoding, and truck-relevant POIs. Google for consumer place discovery. Two vendors, two contracts, each doing what it is good at. This is a decision, not a compromise — document it as such before someone calls it a partial migration.
+</Tip>
+
+## Cost and usage considerations
+
+Each POI request is a billable transaction. `/discover` and `/browse` fire on user interaction, which means volume tracks engagement, not orders.
+
+Where teams overspend:
+
+- **Undebounced search boxes.** One transaction per keystroke.
+- **Re-searching for places already resolved.** Cache the HERE ID; use `/lookup`.
+- **Using `/discover` where `/browse` would serve.** Different endpoints, different costs.
+- **Querying public POIs to find your own locations.**
+- **POI search on map pan.** Every drag fires a query.
+
+See [HERE Pricing Explained](/start-here/here-pricing-explained).
+
+## Common mistakes
+
+**Migrating consumer place search to HERE for cost reasons.** The feature regresses. Users leave.
+
+**Using `/discover` for a store finder.** Relevance ranking, not distance. The nearest store appears third.
+
+**Using `/browse` for a free-text search box.** Distance ranking, not relevance.
+
+**Assuming category taxonomies map across vendors.**
+
+**Not caching by HERE ID.**
+
+**Undebounced keystroke search.**
+
+**Using POI queries for zone containment.**
+
+**Expecting reviews, photos, or reliable hours.**
+
+**Querying a public place index for your own store network.**
+
+## Best practices
+
+- Be explicit about which surfaces stay on Google, and why
+- Cache place records by HERE ID; use `/lookup` for known places
+- Debounce user-facing search at 200–300ms
+- Choose `/discover` for relevance, `/browse` for distance — deliberately
+- Filter by result type and by country
+- Keep your own locations in your own database
+- Join truck POIs to the route, not to a radius
+- Map category taxonomies explicitly if you run both vendors
+
+## API reference
+
+- [HERE Geocoding & Search v7 API reference](https://www.here.com/docs/bundle/geocoding-and-search-api-v7-api-reference/page/index.html)
+- [HERE Geocoding & Search documentation](https://www.here.com/docs/category/geocoding-search-api-v7)
+
+## Related guides
+
+<CardGroup cols={2}>
+  <Card title="Geocoding and Search" href="/guides/geocoding">
+    Autocomplete versus autosuggest, and the caching that halves your bill.
+  </Card>
+  <Card title="HERE vs Google Maps" href="/comparisons/here-vs-google-maps">
+    The place-data gap, stated plainly.
+  </Card>
+  <Card title="Catchment Area" href="/guides/catchment-area">
+    Containment is a spatial query, not a POI search.
+  </Card>
+  <Card title="Truck Routing" href="/guides/truck-routing">
+    Truck-relevant POIs come from the same transport-attributed map.
+  </Card>
+</CardGroup>
+
+Also: [Maps](/guides/maps) · [Points of Interest](https://placematic.com/here-location-services/points-of-interest/)
+
+---
+
+Need production HERE API keys or implementation support?
+
+Placematic is an official HERE Technologies reseller and implementation partner helping companies choose the right HERE APIs, estimate usage, migrate from Google Maps and build production-ready geospatial solutions. [Talk to us](https://placematic.com/contact/).

@@ -1,46 +1,189 @@
 ---
-title: HERE Truck Routing guide
-description: How to calculate truck routes with restrictions, tolls and vehicle parameters.
+title: "HERE Truck Routing — Implementation Guide"
+description: "Implementing HERE truck routing in production — physical constraints, hazmat classes, trap geometry validation, and why a valid response can still be an undrivable route."
 ---
 
-# HERE Truck Routing guide
+# HERE Truck Routing
 
-How to calculate truck routes with restrictions, tolls and vehicle parameters.
+Setting `transportMode=truck` selects the truck routing engine. It does not tell HERE how tall your vehicle is.
 
-<Note>
-This page is part of Placematic Developer Hub: practical guides for teams building with HERE Location Services.
-</Note>
+Omit the dimensions and you get a route. It returns `200`. It contains a polyline. It may also route a 4.1-metre trailer under a 3.4-metre bridge, and HERE will not warn you, because you did not tell it there was a trailer.
 
-## Problem
+This is the single most consequential detail on this site.
 
-Most location projects fail not because the API is unavailable, but because teams choose the wrong service, underestimate usage, or miss production details such as caching, monitoring, fallback logic and data quality.
+## What problem this guide solves
 
-## Practical approach
+Car routing optimizes for time. Truck routing optimizes for time *subject to physical and legal feasibility*. Bridge clearances. Weight limits. Axle restrictions. Hazmat prohibitions. Turn radii. Roads where commercial vehicles are banned outright.
 
-Use this guide as a starting point for designing a production-ready location workflow. The final implementation depends on your product, request volume, regions, compliance needs and licensing model.
+If your product dispatches commercial vehicles, an infeasible route is not a UX defect. It is a bridge strike, a citation, or a driver reversing a 53-foot trailer down a residential street.
 
-## Common questions
+## When to use truck routing
 
-- Which HERE API should be used for this workflow?
-- How should request volume be estimated?
-- What should be cached?
-- What errors should be monitored in production?
-- How does this compare with Google Maps or other providers?
+- Any vehicle above light-passenger class: trucks, vans over 3.5t, tractor-trailers
+- Hazardous materials transport
+- Oversized or overweight loads
+- ELD and fleet platforms where the route drives compliance
+- Any case where the map's truck attributes — weight limits, height restrictions, preferred truck routes — must be respected
 
-## Production checklist
+## When NOT to use it
 
-- Define your exact use case and required geography.
-- Estimate monthly and peak request volume.
-- Separate development and production keys.
-- Add error handling and retry logic.
-- Log API errors and latency.
-- Review caching and data retention rules.
-- Validate pricing before launch.
+- **Passenger vehicles.** Truck routing on a sedan produces longer, slower routes for no benefit.
+- **Light commercial vehicles that legally route as cars.** HERE exposes a `category` parameter with a `lightTruck` value, which exempts the vehicle from many legal truck restrictions while still applying physical dimension limits. Check whether your fleet qualifies before paying the routing penalty.
+- **Multi-stop optimization.** Truck routing gives you A→B. Ordering the stops is Tour Planning.
+- **Distance matrices.** [Matrix Routing](/guides/matrix-routing) supports truck mode. Do not loop.
 
-## Need production HERE API keys?
+## The constrained request
 
-Placematic is a HERE Technologies reseller and implementation partner. We help companies choose the right HERE APIs, estimate usage, configure production keys and migrate from Google Maps or other location platforms.
+<CodeGroup>
+```bash cURL
+curl -gX GET 'https://router.hereapi.com/v8/routes?'\
+'transportMode=truck&'\
+'origin=42.0641,-88.0509&'\
+'destination=41.5250,-88.0817&'\
+'truck[height]=410&'\
+'truck[grossWeight]=35000&'\
+'truck[axleCount]=5&'\
+'return=summary,polyline&'\
+'apiKey=YOUR_API_KEY'
+```
 
-<Card title="Talk to Placematic" icon="message-circle" href="https://placematic.com/contact/">
-  Contact Placematic for HERE licensing, API keys, pricing and implementation support.
-</Card>
+```python Python
+import os, requests
+
+def truck_route(origin: str, destination: str) -> dict:
+    resp = requests.get(
+        "https://router.hereapi.com/v8/routes",
+        params={
+            "transportMode": "truck",
+            "origin": origin,
+            "destination": destination,
+            "truck[height]": 410,          # centimetres
+            "truck[grossWeight]": 35000,   # kilograms
+            "truck[axleCount]": 5,
+            "return": "summary,polyline",
+            "apiKey": os.environ["HERE_API_KEY"],
+        },
+        timeout=15,
+    )
+    resp.raise_for_status()
+    body = resp.json()
+    if not body.get("routes"):
+        raise RuntimeError(f"No route: {body.get('notice')}")
+    return body["routes"][0]
+```
+</CodeGroup>
+
+<Warning>
+**Units are not obvious and are not validated for plausibility.**
+`height` is centimetres. `grossWeight` is kilograms. Pass `4.1` for a 4.1-metre vehicle and HERE will route a four-centimetre truck through everything. The response will be `200`.
+</Warning>
+
+Confirm every unit against the [Routing API v8 reference](https://www.here.com/docs/bundle/routing-api-v8-api-reference/page/index.html) before you ship. This is not a place to guess.
+
+## Key concepts
+
+**`grossWeight` replaced `weightLimit`.** The older `weightLimit` parameter is deprecated in the current v8 specification. If you are reading a 2021 tutorial, you are reading a deprecated parameter.
+
+**`axleCount` counts the whole combination.** Base vehicle plus every attached trailer. Valid range is 2–255. Supported in `truck`, `bus`, and `privateBus`; in `car` and `taxi` it carries beta status.
+
+**Hazmat is a classed enum, not a boolean.** HERE exposes `shippedHazardousGoods` with class values including `B`, `C`, `D`, and `E`. Which classes are supported depends on transport mode. Do not map your internal hazmat flags without reading the reference.
+
+**`category=lightTruck` is a legal exemption, not a physical one.** It exempts the vehicle from many restrictions written for normal trucks. Restrictions on physical dimensions and cargo still apply. Setting it does not let you skip `height` and `grossWeight`.
+
+**Constraints you do not send are constraints HERE cannot apply.** There is no partial mode. There is no warning. The engine assumes an unconstrained vehicle for anything you omit.
+
+## Validating that constraints are actually applied
+
+This is the part most teams skip, and the reason bridge strikes make the news.
+
+Route a vehicle with a height of 410 cm through these locations. If any returns a path, your constraints are not reaching the engine:
+
+| Location | Constraint |
+|---|---|
+| 11foot8 bridge, Durham, NC | Clearance well below 4.1 m |
+| Storrow Drive, Boston, MA | Commercial vehicles prohibited; low overpasses |
+| Southern State Parkway, Long Island, NY | Commercial vehicles prohibited |
+
+<Tip>
+Wire these three into your CI suite as assertions, not as a manual QA step. A refactor that drops `truck[height]` from the params dict is invisible in code review and obvious in a failing test.
+</Tip>
+
+Run the same three with `transportMode=car`. Every one should return a route. That is your control — it proves the test is exercising the constraint and not merely failing for an unrelated reason.
+
+## Production architecture
+
+**Vehicle profiles belong in your data model, not in call sites.** Height, weight, axle count, hazmat class, and category are attributes of a vehicle. Store them once. Pass them everywhere. Do not let a developer hardcode `height=410` in a new endpoint.
+
+**Validate profiles at write time.** A vehicle record with a null height should fail validation before it ever reaches a routing call.
+
+**Truck routing is slower than car routing.** More constraints, more search space. Size your timeouts and your UI accordingly.
+
+**Compliance and routing are coupled.** For ELD platforms, the route determines hours-of-service feasibility. If routing changes, HOS projections change. Model that dependency explicitly rather than discovering it in an audit.
+
+## Cost and usage considerations
+
+Truck routing bills as a routing transaction. The cost gap versus Google is largest here, because Google offers no equivalent depth of commercial vehicle constraints — the comparison is capability, not price.
+
+<Warning>
+Truck routing inclusion in HERE's free tier should be confirmed against your specific account before you scope a pilot around it. Free-tier product coverage varies and should not be inferred from general documentation. Placematic can confirm your entitlement before you commit engineering time.
+</Warning>
+
+For matrices of truck travel times, [Matrix Routing](/guides/matrix-routing) accepts truck mode and vehicle parameters. One call, not N.
+
+## Common mistakes
+
+**Setting `transportMode=truck` and stopping there.** The engine is selected. The vehicle is not described.
+
+**Passing metres instead of centimetres.** A four-centimetre truck routes anywhere.
+
+**Using the deprecated `weightLimit`.** Use `grossWeight`.
+
+**Counting only the tractor's axles.** `axleCount` includes trailers.
+
+**Mapping an internal `is_hazmat` boolean onto HERE's classed enum.** Read the class definitions.
+
+**Assuming `lightTruck` waives dimension limits.** It waives legal restrictions. Bridges do not care about your category.
+
+**Validating on synthetic coordinates.** Two points in a parking lot will route under any constraint set. Test on geometry designed to reject you.
+
+**Shipping without regression tests on trap locations.** The constraint that silently disappeared in a refactor is the one that ends up in an incident report.
+
+## Best practices
+
+- Store vehicle dimensions as first-class model attributes
+- Assert trap-geometry rejection in CI, with a `car`-mode control
+- Confirm every unit against HERE's reference before first deploy
+- Fail loudly on a routing response with empty `routes`
+- Confirm free-tier and contract entitlement for truck mode before scoping
+- Use [Matrix Routing](/guides/matrix-routing) for many-to-many, with truck parameters
+
+## API reference
+
+- [Routing API v8 reference](https://www.here.com/docs/bundle/routing-api-v8-api-reference/page/index.html) — full truck parameter tables and enums
+- [Transport modes](https://www.here.com/docs/bundle/routing-api-developer-guide-v8/page/topics/transport-modes.html)
+- Truck categories are documented within the Routing v8 developer guide
+
+## Related guides
+
+<CardGroup cols={2}>
+  <Card title="Routing" href="/guides/routing">
+    The base engine, request shaping, and error semantics.
+  </Card>
+  <Card title="Matrix Routing" href="/guides/matrix-routing">
+    Truck travel times across many origins and destinations, in one call.
+  </Card>
+  <Card title="HERE vs Google Maps" href="/comparisons/here-vs-google-maps">
+    Where the commercial vehicle gap is decisive.
+  </Card>
+  <Card title="HERE Pricing Explained" href="/start-here/here-pricing-explained">
+    Asset-based versus call-volume pricing for fleet workloads.
+  </Card>
+</CardGroup>
+
+Also: [Choosing the Right HERE APIs](/start-here/choosing-the-right-here-apis) · [Authentication](/start-here/authentication) · [HERE Location Services](https://placematic.com/here-location-services/)
+
+---
+
+Need production HERE API keys or implementation support?
+
+Placematic is an official HERE Technologies reseller and implementation partner helping companies choose the right HERE APIs, estimate usage, migrate from Google Maps and build production-ready geospatial solutions. We have deployed HERE truck routing into production ELD systems. [Talk to us](https://placematic.com/contact/).

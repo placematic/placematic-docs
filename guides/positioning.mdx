@@ -1,0 +1,166 @@
+---
+title: "HERE Positioning — Implementation Guide"
+description: "Hybrid positioning with HERE — Wi-Fi, cellular, and GNSS fusion, when GPS is not enough, and why most fleet platforms should not use this API at all."
+---
+
+# HERE Positioning
+
+HERE Positioning determines a device's location from surrounding radio signals — Wi-Fi access points, cellular towers, Bluetooth beacons — rather than from GNSS satellites.
+
+It exists for one reason: GPS fails indoors, in urban canyons, in parking structures, and in warehouses.
+
+Most fleet platforms should not use it.
+
+## What problem this guide solves
+
+A trailer enters a distribution centre. GPS degrades to nothing. For the next ninety minutes, your telematics feed reports the last known position — outside, on the road — while the trailer is at dock 14.
+
+Or: a warehouse operator wants to know which aisle a forklift is in. GPS gives an accuracy radius that spans the building.
+
+<Warning>
+Before reaching for this API, confirm the problem is actually a positioning problem. If your vehicles operate outdoors on public roads with clear sky view, GPS is more accurate, free, and already in the device. Adding hybrid positioning solves nothing and bills for the privilege.
+</Warning>
+
+## When to use HERE Positioning
+
+- Asset tracking inside warehouses, distribution centres, and terminals
+- Devices without a GNSS chip — low-cost tags, some IoT sensors
+- Dense urban environments where multipath makes GPS unreliable
+- Indoor/outdoor transition tracking, where continuity matters more than absolute precision
+- Fallback positioning when GNSS is unavailable or has not yet acquired a fix
+- Reducing time-to-first-fix on cold start
+
+## When NOT to use it
+
+- **Outdoor road vehicles with GPS.** This is the majority of fleet telematics. GNSS is better and already paid for.
+- **Determining which road a vehicle drove.** That is [Route Matching](/guides/route-matching).
+- **Turning a coordinate into an address.** That is [reverse geocoding](/guides/reverse-geocoding).
+- **Sub-metre indoor precision.** Radio positioning does not reliably deliver it. If you need aisle-and-shelf accuracy, you need a purpose-built RTLS with dedicated infrastructure.
+- **Anywhere Wi-Fi and cell density is low.** Rural highways. Radio positioning degrades exactly where GPS works best, and improves exactly where GPS fails. That inverse relationship is the whole product.
+
+## Key concepts
+
+**Accuracy varies by radio environment, not by configuration.** A dense office with fifty visible access points positions well. A steel warehouse with three positions poorly. You cannot tune your way out of a sparse radio map.
+
+**The device does the scanning; the API does the resolution.** Your application collects observed access points and cell towers, submits them, and receives a position estimate. The quality of what you submit determines the quality of what you get.
+
+**Every position carries an uncertainty radius.** Treat it as part of the answer, not as metadata. A position with a 200-metre radius is not a location — it is a constraint. Persisting it as a point coordinate discards the only honest thing in the response.
+
+<Warning>
+Storing a hybrid position as a bare `(lat, lng)` pair, without its accuracy radius, converts a probabilistic estimate into a fact. Every downstream consumer will treat it as GPS-equivalent. This is the most common and most damaging mistake with this API.
+</Warning>
+
+**Radio environments change.** Access points are added, removed, and moved. A position that was accurate last quarter may not be today. This is not a bug in the API.
+
+**Privacy is a design constraint, not an afterthought.** Radio scans reveal where a device is and, in aggregate, where a person has been. Whatever your legal obligations are, this data raises them.
+
+## Code examples
+
+<Info>
+HERE Positioning's request format — the structure for submitting observed Wi-Fi access points, cell towers, and beacons — is versioned and entitlement-dependent.
+
+We do not publish a request we cannot verify against your account. Start from HERE's maintained reference:
+
+- [HERE Positioning documentation](https://www.here.com/docs/category/here-positioning)
+
+Authentication follows the pattern in [Authentication](/start-here/authentication).
+</Info>
+
+<Warning>
+**Ignore any Placematic-hosted positioning endpoint you may have seen on a marketing page.** There is no `positioning.placematic.com`. Placematic issues HERE credentials; you call HERE's endpoints. If you encounter a Placematic API host in any material, treat it as an error and tell us.
+</Warning>
+
+## Production architecture
+
+**Fuse on device, not in the cloud.** The device knows its GNSS fix quality in real time. Deciding *there* whether to fall back to radio positioning avoids a round trip and avoids paying for a call you did not need.
+
+**Trigger on GNSS degradation, not on a timer.** Positioning when GPS is healthy is pure spend. Positioning at a fixed interval regardless of GPS state is the same mistake as [reverse-geocoding every ping](/guides/reverse-geocoding).
+
+**Cache the radio fingerprint.** A forklift parked at dock 14 sees the same access points for an hour. If the observed set has not changed materially, the position has not changed. Do not resubmit.
+
+**Persist the accuracy radius alongside the coordinate.** Every downstream system that reads position must be able to distinguish a 5-metre GNSS fix from a 300-metre radio estimate.
+
+**Model the transition.** Indoor/outdoor handoff produces position jumps. A vehicle "teleporting" 80 metres as it exits a building is the positioning system working correctly and the UI working badly. Smooth the display; do not smooth the stored data.
+
+**Do not feed hybrid positions into [Route Matching](/guides/route-matching).** Map matching assumes GNSS-grade observations. Radio positions inside a building will match to the nearest road, confidently and wrongly.
+
+**Batch where nothing waits.** Historical enrichment of stored radio scans is a batch job.
+
+## Cost and usage considerations
+
+Each positioning request is a billable transaction, under its own entitlement. A key that routes does not necessarily position. See [Getting a HERE API Key](/start-here/getting-a-here-api-key).
+
+Where teams overspend:
+
+- **Positioning on a fixed interval regardless of GPS state.** The dominant waste. Trigger on GNSS failure.
+- **Resubmitting an unchanged radio fingerprint.** Idle assets bill continuously.
+- **Positioning outdoor road vehicles.** They have GPS. It is free and better.
+- **Positioning every device in a facility when a gateway-level fix would suffice.** One fix per dock, not one per pallet.
+
+The economics only work when positioning is the exception. If it is your primary source of location, examine whether GNSS-capable hardware is cheaper than the API bill. Often it is.
+
+See [HERE Pricing Explained](/start-here/here-pricing-explained).
+
+## Common mistakes
+
+**Using it as a GPS replacement rather than a GPS fallback.**
+
+**Discarding the accuracy radius.** The single most damaging error.
+
+**Positioning on a timer instead of on GNSS degradation.**
+
+**Resubmitting identical radio fingerprints for stationary assets.**
+
+**Expecting sub-metre indoor accuracy.** Wrong technology.
+
+**Feeding radio positions into map matching.** Confident nonsense.
+
+**Deploying in a rural environment.** Sparse radio, sparse accuracy.
+
+**Assuming your routing key positions.** Separate entitlement.
+
+**Treating radio scan data as ordinary telemetry** for privacy and retention purposes.
+
+**Copying a `positioning.placematic.com` example from a marketing page.** It does not exist.
+
+## Best practices
+
+- Use positioning as a fallback, triggered by GNSS degradation
+- Persist and propagate the accuracy radius with every stored position
+- Cache the radio fingerprint; suppress resubmission when it is unchanged
+- Fuse on device where possible
+- Smooth indoor/outdoor transitions in the UI, not in storage
+- Never feed hybrid positions to map matching
+- Confirm positioning entitlement before you architect around it
+- Treat radio scans as sensitive data
+
+## API reference
+
+- [HERE Positioning documentation](https://www.here.com/docs/category/here-positioning)
+
+Complete request schemas, supported radio types, and response fields are maintained by HERE.
+
+## Related guides
+
+<CardGroup cols={2}>
+  <Card title="Route Matching" href="/guides/route-matching">
+    What to do with GNSS traces — and what never to do with radio positions.
+  </Card>
+  <Card title="Reverse Geocoding" href="/guides/reverse-geocoding">
+    Turning a coordinate into an address, which positioning does not do.
+  </Card>
+  <Card title="Getting a HERE API Key" href="/start-here/getting-a-here-api-key">
+    Positioning is a separate entitlement. Confirm it first.
+  </Card>
+  <Card title="HERE Pricing Explained" href="/start-here/here-pricing-explained">
+    Why positioning economics only work as an exception path.
+  </Card>
+</CardGroup>
+
+Also: [Authentication](/start-here/authentication) · [HERE Positioning](https://placematic.com/here-location-services/here-positioning/)
+
+---
+
+Need production HERE API keys or implementation support?
+
+Placematic is an official HERE Technologies reseller and implementation partner helping companies choose the right HERE APIs, estimate usage, migrate from Google Maps and build production-ready geospatial solutions. [Talk to us](https://placematic.com/contact/).

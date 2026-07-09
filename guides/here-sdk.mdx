@@ -1,0 +1,170 @@
+---
+title: "HERE SDK for iOS and Android — Implementation Guide"
+description: "Implementing the HERE mobile SDK — editions and entitlements, offline maps, on-device turn-by-turn, binary size, and the licensing question that surfaces at app store submission."
+---
+
+# HERE SDK for iOS and Android
+
+The most important fact about the HERE SDK is commercial, not technical.
+
+**Web tile access and mobile SDK access are separate entitlements.** A contract that serves tiles to your web dispatcher does not automatically license the SDK in your driver app.
+
+Teams discover this during app store submission. It is expensive, it is late, and it is entirely avoidable.
+
+<Warning>
+Confirm mobile SDK entitlement **before** you scope the mobile release. Not after the build succeeds. Both web and mobile are available under a single Placematic contract — but both must be enabled explicitly. See [Getting a HERE API Key](/start-here/getting-a-here-api-key).
+</Warning>
+
+## What problem this guide solves
+
+A driver's phone loses signal in a canyon, a tunnel, or forty miles of rural Nevada. A REST routing call returns nothing. The navigation stops.
+
+The SDK exists because some things must run on the device: turn-by-turn guidance, offline maps, on-device rendering, position updates at a rate no network round trip can sustain.
+
+## When to use the SDK
+
+- **Turn-by-turn navigation** in a driver-facing app
+- **Offline maps** where connectivity is unreliable
+- **On-device rendering** with tight performance requirements
+- **On-device route recalculation** when a driver deviates
+- **Continuous position updates** at a cadence unsuited to network calls
+
+## When NOT to use it
+
+- **Displaying a map on a web page.** Use tiles with Leaflet, OpenLayers, or MapLibre GL. See [Maps](/guides/maps).
+- **A dispatcher dashboard.** That is a web application.
+- **A read-only map in a mobile app.** A tile-based map view is lighter, simpler, and avoids the SDK entitlement question entirely.
+- **Calling routing from a mobile app.** The REST [Routing API](/guides/routing) works fine from a phone. The SDK is for guidance, not for HTTP.
+- **Anything where binary size is a hard constraint** and offline maps are not required. The SDK is not small.
+
+<Info>
+Ask yourself: does this app need to work with the network off? If no, you probably need tiles and REST calls, not the SDK. That answer saves an entitlement conversation and several megabytes.
+</Info>
+
+## Key concepts
+
+**The SDK ships in editions with different capabilities and different licensing.** Navigation, offline maps, and rendering are not uniformly available across all of them. Which edition you need is a commercial question that determines your technical options, not the reverse.
+
+**Offline maps are downloaded regions, not a cache.** You choose what to download, when, and how much storage to consume. A driver crossing three states needs three regions, downloaded before departure, on Wi-Fi.
+
+**Offline map data has a release cadence.** A region downloaded in March reflects March's map. Refresh policy is your decision and it has bandwidth consequences.
+
+**Binary size is a real cost.** The SDK adds meaningfully to your app. On Android, this affects install conversion. Measure it before you commit.
+
+**Truck routing constraints apply on-device.** Height, `grossWeight`, `axleCount` — the same parameters as [Truck Routing](/guides/truck-routing). An on-device route computed without them is exactly as undrivable as a REST route computed without them, and now it is guiding a driver in real time.
+
+**Credentials are embedded in the binary.** Binaries are trivially decompiled. This is a security consideration, not a hypothetical. See [Authentication](/start-here/authentication).
+
+## Code examples
+
+<Info>
+HERE SDK initialization, credential handling, and API surface differ substantially across editions and platform versions, and are gated by entitlement.
+
+Publishing initialization code we cannot verify against your edition would be worse than publishing none. Start from HERE's maintained reference:
+
+- [HERE SDK documentation](https://www.here.com/docs/category/here-sdk)
+- [HERE Map Rendering documentation](https://www.here.com/docs/category/here-map-rendering)
+
+Placematic confirms your edition and provides working initialization during a pilot.
+</Info>
+
+## Production architecture
+
+**Decide the offline strategy before you write code.** Which regions, downloaded when, refreshed how often, consuming how much storage. Retrofitting offline onto an online-first architecture is a rewrite.
+
+**Download on Wi-Fi, on a schedule.** A driver starting a shift on cellular should not be downloading a state.
+
+**Design for the online/offline transition.** Route computed online, driver enters a tunnel, route recalculated offline. The two engines can disagree. Decide which wins and make it deterministic.
+
+**Server-side routing and on-device routing serve different purposes.** Dispatch plans the route on the server, with full fleet context. The device guides along it and recalculates on deviation. Do not let the device silently re-plan a route that dispatch committed to a customer.
+
+**Vehicle profiles must reach the device.** Height, weight, axle count. Store them server-side, push them to the app, apply them to on-device routing. A profile that lives only in your dispatch backend produces safe server routes and unsafe device recalculations.
+
+**Test on the worst device your drivers actually use.** Not the newest phone in the office. The four-year-old Android tablet bolted to a dashboard.
+
+**Plan for map region storage on constrained devices.** Offline maps are large. So are photos of delivery confirmations.
+
+<Tip>
+The single most dangerous pattern in mobile fleet software: server-side truck routing with constraints, device-side recalculation without them. The driver deviates, the phone reroutes, and the constraint set never made it into the app. Push vehicle profiles to the device. Test the recalculation path.
+</Tip>
+
+## Cost and usage considerations
+
+SDK licensing is a distinct entitlement from web tile access, and pricing structure differs from per-request REST billing. Offline map downloads consume bandwidth and may carry their own terms.
+
+Confirm before you build:
+
+- Which SDK edition your contract covers
+- Whether offline maps are included
+- How on-device navigation is metered
+- Whether your web tile entitlement extends to mobile rendering
+
+<Warning>
+Do not assume your REST API contract covers the SDK. Do not assume your web tile contract covers mobile rendering. These are the two assumptions that produce a licensing conversation two weeks before launch.
+</Warning>
+
+See [HERE Pricing Explained](/start-here/here-pricing-explained) and the [HERE API pricing page](https://placematic.com/here-location-services/here-pricing/).
+
+## Common mistakes
+
+**Assuming web tile entitlement covers the mobile SDK.** Discovered at submission.
+
+**Using the SDK when tiles and REST would serve.** Weight, complexity, and licensing for no benefit.
+
+**Shipping without on-device truck constraints.** Safe server routes, unsafe recalculations.
+
+**Retrofitting offline onto an online-first app.**
+
+**Downloading map regions on cellular.**
+
+**Ignoring binary size until the store rejects or the install rate drops.**
+
+**Letting the device silently re-plan a committed dispatch route.**
+
+**Embedding credentials without acknowledging that the binary is readable.**
+
+**Testing only on modern hardware.**
+
+**Treating an offline map as a cache with a TTL.** It is a downloaded region with a release version.
+
+## Best practices
+
+- Confirm SDK edition and entitlement before scoping the mobile release
+- Choose tiles + REST unless you genuinely need offline or on-device guidance
+- Push vehicle profiles from server to device; apply them to on-device routing
+- Test the offline recalculation path against truck constraints
+- Download regions on Wi-Fi, on a schedule
+- Make the online/offline handoff deterministic
+- Measure binary size impact before committing
+- Test on the oldest device in the field
+- Separate dispatch planning from device guidance
+
+## API reference
+
+- [HERE SDK documentation](https://www.here.com/docs/category/here-sdk)
+- [HERE Map Rendering documentation](https://www.here.com/docs/category/here-map-rendering)
+
+## Related guides
+
+<CardGroup cols={2}>
+  <Card title="Maps" href="/guides/maps">
+    Web tiles, and the entitlement boundary between them and the SDK.
+  </Card>
+  <Card title="Truck Routing" href="/guides/truck-routing">
+    Constraints that must reach the device, not just the server.
+  </Card>
+  <Card title="Getting a HERE API Key" href="/start-here/getting-a-here-api-key">
+    Entitlements are per-product. Confirm before you build.
+  </Card>
+  <Card title="Routing" href="/guides/routing">
+    Server-side planning, which the device guides along.
+  </Card>
+</CardGroup>
+
+Also: [Authentication](/start-here/authentication) · [HERE SDK](https://placematic.com/here-location-services/here-sdk/)
+
+---
+
+Need production HERE API keys or implementation support?
+
+Placematic is an official HERE Technologies reseller and implementation partner helping companies choose the right HERE APIs, estimate usage, migrate from Google Maps and build production-ready geospatial solutions. [Talk to us](https://placematic.com/contact/).

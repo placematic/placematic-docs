@@ -1,0 +1,194 @@
+---
+title: "HERE Batch Geocoding — Implementation Guide"
+description: "Implementing the HERE Batch API v7 job lifecycle — create, start, poll, retrieve, delete — plus concurrency limits, the 204 that is not an error, and why batch is the first thing you should migrate."
+---
+
+# HERE Batch Geocoding
+
+Batch geocoding is not a bulk endpoint. It is a **job API**, with a lifecycle you must manage.
+
+Teams reach for it expecting `POST /geocode` with an array. They get a job ID, a status URL, and a set of behaviours that look like errors and are not.
+
+## What problem this guide solves
+
+You have 4 million customer addresses to normalize. Nothing is waiting. A user is not watching a spinner.
+
+Paying real-time geocoding rates for this is the second-largest avoidable cost on the platform, after not caching at all. Batch is cheaper per record, and the only thing you give up is latency you were not using.
+
+<Info>
+**Batch geocoding is the correct first surface to migrate off Google.** Smallest blast radius, largest saving, no user-facing risk. If a nightly job breaks, you fix a nightly job. See [Migrating from Google Maps](/guides/google-migration).
+</Info>
+
+## When to use Batch API
+
+- Bulk address normalization on import
+- Backfilling coordinates for an existing customer or location table
+- Nightly enrichment pipelines
+- Processing partner data files
+- Historical telematics enrichment via [batch reverse geocoding](https://www.here.com/docs/bundle/batch-api-v7-developer-guide/page/topics/reverse-geocoding.html)
+- Any workload where the result is written to a database rather than rendered to a screen
+
+**The tell:** if nothing is waiting for the answer, it should have been batched.
+
+## When NOT to use it
+
+- **A user is waiting.** Checkout address entry, dispatcher lookup. Use real-time [geocoding](/guides/geocoding).
+- **The address is already in your cache.** Batch is cheap. Cached is free.
+- **Fewer than a few hundred records.** Job overhead exceeds the saving.
+- **You need results within seconds.** Jobs are asynchronous by design and by nature.
+- **You want a bulk endpoint.** This is not that. It is a job lifecycle.
+
+## The job lifecycle
+
+Six steps. Skipping any of them produces the failure modes below.
+
+1. **Create** — `POST` the job → `201` with a job ID
+2. **Start** — begin processing
+3. **Poll status** — until the job reaches a terminal state
+4. **Retrieve results** — as a downloadable stream
+5. **Retrieve errors** — separately, if any
+6. **Delete** — clean up
+
+HERE documents [job status](https://www.here.com/docs/bundle/batch-api-v7-developer-guide/page/topics/job-status.html), [job lifecycle](https://www.here.com/docs/bundle/batch-api-v7-developer-guide/page/topics/job-lifecycle.html), and [limits and performance](https://www.here.com/docs/bundle/batch-api-v7-developer-guide/page/topics/limits-and-performance.html) as three separate concerns. Read all three before you write the pipeline. The limits page in particular will determine your architecture.
+
+## Status codes that are not errors
+
+This section exists because these three produce more support tickets than everything else combined.
+
+| Response | Meaning | Do |
+|---|---|---|
+| `429` on job start | Concurrent job limit exceeded | Queue. Back off. This is a quota, not a fault. |
+| `204` on errors endpoint | Job completed with **zero** errors | Celebrate. Do not retry. |
+| `404` on results | Job has not succeeded yet | Poll status first. Results do not exist until success. |
+
+<Warning>
+A `204` from the errors endpoint means there were no errors. Code that treats any non-`200` as failure will log a successful job as broken, every single night, until someone reads the spec.
+</Warning>
+
+## Code examples
+
+<Info>
+Batch API v7 request formats, the base host, and the exact endpoint paths for create/start/status/result are versioned and entitlement-dependent. We do not publish a host we have not verified against your account.
+
+Start from HERE's own quick start, which is maintained and correct:
+
+- [Batch API v7 quick start](https://www.here.com/docs/bundle/batch-api-v7-developer-guide/page/topics/batch-api-quick-start.html)
+- [Job lifecycle](https://www.here.com/docs/bundle/batch-api-v7-developer-guide/page/topics/job-lifecycle.html)
+- [Limits and performance](https://www.here.com/docs/bundle/batch-api-v7-developer-guide/page/topics/limits-and-performance.html)
+
+Authentication follows [Authentication](/start-here/authentication).
+</Info>
+
+The pipeline logic below is what matters, and it is platform-independent.
+
+## Production architecture
+
+**Persist the job ID before you poll.** If your worker restarts mid-poll, you resume. You do not resubmit. Resubmitting a 4-million-record job bills 4 million records again.
+
+**Poll with backoff.** A job that takes forty minutes does not need to be checked every two seconds.
+
+**Respect the concurrency limit.** Queue jobs. A `429` on start means you already have as many running as your entitlement allows. Firing retries in a loop achieves nothing.
+
+**Use gzip.** Compression is supported and worth it on large inputs. Upload time and bandwidth both drop materially.
+
+**Handle partial success.** Some records fail. The errors endpoint tells you which. A pipeline that assumes all-or-nothing will either discard 3.9 million good results or persist 100,000 bad ones.
+
+**Delete completed jobs.** They accumulate. Cleanup is step six for a reason.
+
+**Webhooks exist in beta.** HERE supports completion notifications with substitutable placeholders like `${JOB_ID}` and `${JOB_STATUS}`. Attractive — but beta. If your nightly pipeline's correctness depends on a webhook arriving, build the polling fallback anyway.
+
+**Normalize before you submit.** Trim, case-fold, and expand abbreviations first. It increases your cache hit rate on the next run and reduces records that fail to match.
+
+**Write results into your cache, not just your table.** The point of batch geocoding is that you never geocode that address again. See [Geocoding](/guides/geocoding).
+
+<Tip>
+The correct end state is a table where every address has coordinates, a normalized form, a confidence score, and a `geocoded_at` timestamp. New addresses arrive at a trickle and are geocoded in real time. The batch job runs once, at migration, and then rarely.
+</Tip>
+
+## Cost and usage considerations
+
+Batch is cheaper per record than real-time. That is the entire commercial case, and it is sufficient.
+
+Where teams overspend:
+
+- **Never batching at all.** Real-time rates for overnight work.
+- **Re-batching unchanged records.** Filter on `geocoded_at IS NULL` before you build the input file.
+- **Resubmitting jobs after a worker crash.** Persist the job ID.
+- **No caching downstream.** You paid once. Do not pay again next month.
+- **Batching what should have been cached.** If your input file contains the same address 400 times, deduplicate it before submission.
+
+<Warning>
+Deduplicate your input file. A raw export of order addresses contains enormous repetition. Geocoding 4 million rows that contain 900,000 distinct addresses bills for 4 million.
+</Warning>
+
+Geocoding-heavy workloads see the largest savings when moving from Google — typically 80%+ at production volume. That figure assumes the pipeline is already sane. Migrating an unbatched, undeduplicated pipeline moves waste to a cheaper meter.
+
+See [HERE Pricing Explained](/start-here/here-pricing-explained).
+
+## Common mistakes
+
+**Treating Batch API as a bulk endpoint.** It is a job lifecycle. Poll it.
+
+**Retrying `204` from the errors endpoint.** Zero errors.
+
+**Retrying `404` on results aggressively.** The job has not finished.
+
+**Hammering after a `429` on start.** Concurrency limit. Queue.
+
+**Losing the job ID on restart.** Full rebill.
+
+**Assuming all-or-nothing.** Read the errors endpoint.
+
+**Never deleting jobs.**
+
+**Depending on a beta webhook** without a polling fallback.
+
+**Not deduplicating the input file.**
+
+**Not writing results back into a persistent cache.** You will do this again next quarter, and pay again.
+
+## Best practices
+
+- Deduplicate and normalize the input before submission
+- Persist the job ID before the first poll
+- Poll with exponential backoff
+- Queue against the concurrency limit rather than retrying `429`
+- Compress large inputs with gzip
+- Read the errors endpoint; handle partial success explicitly
+- Delete jobs after retrieval
+- Write results into a durable cache keyed on normalized address
+- Build the polling path even if you use webhooks
+- Filter on already-geocoded records before every subsequent run
+
+## API reference
+
+- [Batch API v7 quick start](https://www.here.com/docs/bundle/batch-api-v7-developer-guide/page/topics/batch-api-quick-start.html)
+- [Job lifecycle](https://www.here.com/docs/bundle/batch-api-v7-developer-guide/page/topics/job-lifecycle.html)
+- [Job status](https://www.here.com/docs/bundle/batch-api-v7-developer-guide/page/topics/job-status.html)
+- [Limits and performance](https://www.here.com/docs/bundle/batch-api-v7-developer-guide/page/topics/limits-and-performance.html)
+- [Batch reverse geocoding](https://www.here.com/docs/bundle/batch-api-v7-developer-guide/page/topics/reverse-geocoding.html)
+
+## Related guides
+
+<CardGroup cols={2}>
+  <Card title="Geocoding and Search" href="/guides/geocoding">
+    Real-time endpoints, caching strategy, and when latency is worth paying for.
+  </Card>
+  <Card title="Reverse Geocoding" href="/guides/reverse-geocoding">
+    Batch reverse geocoding for historical telematics enrichment.
+  </Card>
+  <Card title="Migrating from Google Maps" href="/guides/google-migration">
+    Batch is the first surface to move. Smallest risk, largest saving.
+  </Card>
+  <Card title="HERE Pricing Explained" href="/start-here/here-pricing-explained">
+    Batch versus real-time is the largest per-record cost lever.
+  </Card>
+</CardGroup>
+
+Also: [Authentication](/start-here/authentication) · [Batch Geocoding](https://placematic.com/here-location-services/batch-geocoding/)
+
+---
+
+Need production HERE API keys or implementation support?
+
+Placematic is an official HERE Technologies reseller and implementation partner helping companies choose the right HERE APIs, estimate usage, migrate from Google Maps and build production-ready geospatial solutions. [Talk to us](https://placematic.com/contact/).

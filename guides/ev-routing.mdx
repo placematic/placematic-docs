@@ -1,46 +1,150 @@
 ---
-title: HERE EV Routing guide
-description: How to build EV-aware routing and charging workflows.
+title: "HERE EV Routing — Implementation Guide"
+description: "Implementing electric vehicle routing with HERE — consumption models, charging stops, the separate EV Charge Points API, and when EV routing is not what you need."
 ---
 
-# HERE EV Routing guide
+# HERE EV Routing
 
-How to build EV-aware routing and charging workflows.
+EV routing is not car routing with a range filter bolted on. It is a routing problem where the vehicle's energy state changes along the path, and where the route may require stopping to acquire more energy.
 
-<Note>
-This page is part of Placematic Developer Hub: practical guides for teams building with HERE Location Services.
-</Note>
+That single difference — that the vehicle's ability to continue depends on decisions made earlier in the route — is why you cannot approximate it by post-processing a car route against a charger database.
 
-## Problem
+## What problem this guide solves
 
-Most location projects fail not because the API is unavailable, but because teams choose the wrong service, underestimate usage, or miss production details such as caching, monitoring, fallback logic and data quality.
+You are routing a vehicle that can run out of energy in a way that a diesel truck effectively cannot, because refuelling infrastructure is dense and charging infrastructure is not, and because charging takes an hour rather than eight minutes.
 
-## Practical approach
+The system must answer: can this vehicle complete this route, where must it stop, and how long does the stop take.
 
-Use this guide as a starting point for designing a production-ready location workflow. The final implementation depends on your product, request volume, regions, compliance needs and licensing model.
+## Two distinct HERE products
 
-## Common questions
+<Warning>
+Do not confuse these. They are different APIs with different entitlements.
+</Warning>
 
-- Which HERE API should be used for this workflow?
-- How should request volume be estimated?
-- What should be cached?
-- What errors should be monitored in production?
-- How does this compare with Google Maps or other providers?
+**EV routing** is a capability within the Routing API. It accepts a consumption model and current charge state, and returns a route that may include charging stops.
 
-## Production checklist
+**HERE EV Charge Points API** is a separate product for finding and describing charging infrastructure — station locations, connector types, power feeds, availability, tariffs. It exists at [v2 and v3](https://www.here.com/docs/category/ev-charge-points-api-v3), with a documented migration path between them.
 
-- Define your exact use case and required geography.
-- Estimate monthly and peak request volume.
-- Separate development and production keys.
-- Add error handling and retry logic.
-- Log API errors and latency.
-- Review caching and data retention rules.
-- Validate pricing before launch.
+If you need a map of chargers, you want the EV Charge Points API. If you need a route that reaches its destination, you want EV routing. Most real products need both, and they bill separately.
 
-## Need production HERE API keys?
+## When to use EV routing
 
-Placematic is a HERE Technologies reseller and implementation partner. We help companies choose the right HERE APIs, estimate usage, configure production keys and migrate from Google Maps or other location platforms.
+- Fleet dispatch where range is a binding constraint
+- Long-haul EV routing across sparse charging corridors
+- Range-anxiety features in driver-facing applications
+- Feasibility scoring before assigning an EV to a job
+- Electrifying an existing diesel route and needing to know whether it survives
 
-<Card title="Talk to Placematic" icon="message-circle" href="https://placematic.com/contact/">
-  Contact Placematic for HERE licensing, API keys, pricing and implementation support.
-</Card>
+## When NOT to use it
+
+- **Short urban routes well inside range.** Standard [routing](/guides/routing) is cheaper and simpler. If every job is 40 km and the vehicle has 300 km of range, charging is not a routing problem — it is a depot scheduling problem.
+- **Displaying nearby chargers.** That is the EV Charge Points API.
+- **Charging session management or payment.** Neither product does this.
+- **Modelling total cost of ownership.** Routing gives you energy consumption, not economics.
+
+## Key concepts
+
+**A consumption model is a curve, not a constant.** Energy use varies with speed, gradient, and auxiliary load. A model that assumes linear consumption will be optimistic on highways and on hills.
+
+**Charge state is an input, not an assumption.** Routing from a vehicle at 22% charge produces a materially different route than the same vehicle at 90%. If your telematics feed provides live state of charge, use it. If it does not, be honest with the driver about what the ETA assumes.
+
+**Charging stops are routing outputs.** The engine may insert them. Your UI and your dispatch logic must handle a route with stops that the dispatcher did not request.
+
+**Charger availability is a separate query and a separate freshness problem.** A route computed against static charger data will confidently send a truck to an occupied or out-of-service charger. If availability matters, query it — and know that availability data has a latency that route computation does not.
+
+**Truck charging is not car charging.** HERE documents EV truck charging locations as a distinct concern within the EV Charge Points product. Connector types, power levels, and physical site access differ. A route computed against passenger-vehicle chargers is wrong for a Class 8 vehicle.
+
+## Code examples
+
+<Info>
+EV routing parameters — consumption model, charge state, charging station preferences — are numerous, versioned, and mode-dependent. Rather than publish an example we cannot fully verify against your entitlement and API version, we link to HERE's maintained reference and recommend confirming the current parameter set before implementation.
+
+- [Routing API v8 reference](https://www.here.com/docs/bundle/routing-api-v8-api-reference/page/index.html) — EV routing parameters
+- [EV routing tutorials](https://www.here.com/docs/category/ev-charge-points-api-v3) — HERE's own worked examples
+- [EV Charge Points API v3 migration guide](https://www.here.com/docs/category/ev-charge-points-api-v3) — if you are on v2
+
+Placematic will scope a working request against your actual vehicle profile and entitlement during a pilot. That is faster and safer than adapting a generic example.
+</Info>
+
+The base routing endpoint and authentication are the same as standard routing — see [Routing](/guides/routing) for the verified request shape and [Authentication](/start-here/authentication) for key handling.
+
+## Production architecture
+
+**Vehicle energy profiles are model data.** Battery capacity, consumption curve, connector type, and maximum charge rate belong on the vehicle record, not in the call site. This is the same argument as truck dimensions in [Truck Routing](/guides/truck-routing), and it fails the same way when ignored.
+
+**Separate feasibility from dispatch.** Ask "can this vehicle do this job" as a cheap pre-check before you compute the full route with charging stops. Most rejections are obvious.
+
+**Cache the network, not the availability.** Charger locations change slowly. Availability changes by the minute. Different TTLs, different storage.
+
+**Model the charging stop as a first-class event.** Drivers need to know a stop is coming. Dispatchers need to know a vehicle is unavailable for 45 minutes. A route object that hides the stop inside a polyline will not survive contact with operations.
+
+**Degrade honestly.** If live charge state is unavailable, say the ETA assumes a full battery. Do not silently substitute an assumption.
+
+## Cost and usage considerations
+
+EV routing bills as a routing transaction. The EV Charge Points API bills separately, under its own entitlement.
+
+Where teams overspend:
+
+- Querying charger availability on every route computation, when the route was cached
+- Recomputing full EV routes for feasibility checks that a range comparison would have rejected
+- Calling the Charge Points API per-map-pan rather than caching the network
+
+Confirm entitlement for both products before you architect around them. A key that routes EVs may not query charge points. See [Getting a HERE API Key](/start-here/getting-a-here-api-key).
+
+## Common mistakes
+
+**Approximating EV routing by filtering a car route against a charger table.** The vehicle's ability to reach charger three depends on whether it stopped at charger one. This is not a post-processing problem.
+
+**Assuming full charge.** Nearly every real dispatch begins at partial charge.
+
+**Ignoring gradient and speed in the consumption model.** Highway and mountain routes break linear assumptions.
+
+**Routing a heavy commercial EV against passenger charging infrastructure.** Different connectors, different power, different site access.
+
+**Treating charger availability as static.** A confidently routed truck arriving at an occupied charger is worse than no routing at all.
+
+**Confusing EV routing with the EV Charge Points API.** Separate products, separate entitlements, separate bills.
+
+**Deploying against v2 of the Charge Points API without checking the v3 migration path.**
+
+## Best practices
+
+- Store the full energy profile on the vehicle record
+- Use live state of charge where telematics provides it; disclose the assumption where it does not
+- Pre-filter infeasible jobs before computing full routes
+- Cache the charger network aggressively; cache availability barely
+- Surface charging stops explicitly in dispatch and driver UIs
+- Verify truck-specific charging data if you route commercial EVs
+- Confirm entitlement for both routing and charge points before you build
+
+## API reference
+
+- [Routing API v8 reference](https://www.here.com/docs/bundle/routing-api-v8-api-reference/page/index.html)
+- [HERE EV Charge Points API v3](https://www.here.com/docs/category/ev-charge-points-api-v3)
+- [EV Charge Points v2 to v3 migration guide](https://www.here.com/docs/category/ev-charge-points-api-v3)
+
+## Related guides
+
+<CardGroup cols={2}>
+  <Card title="Routing" href="/guides/routing">
+    The base engine, request shape, and error semantics EV routing inherits.
+  </Card>
+  <Card title="Truck Routing" href="/guides/truck-routing">
+    Physical constraints, which apply to electric trucks as much as diesel ones.
+  </Card>
+  <Card title="Matrix Routing" href="/guides/matrix-routing">
+    Matrix responses can include consumption alongside time and distance.
+  </Card>
+  <Card title="Choosing the Right HERE APIs" href="/start-here/choosing-the-right-here-apis">
+    EV routing versus charge points — which question are you asking.
+  </Card>
+</CardGroup>
+
+Also: [HERE Pricing Explained](/start-here/here-pricing-explained) · [Getting a HERE API Key](/start-here/getting-a-here-api-key)
+
+---
+
+Need production HERE API keys or implementation support?
+
+Placematic is an official HERE Technologies reseller and implementation partner helping companies choose the right HERE APIs, estimate usage, migrate from Google Maps and build production-ready geospatial solutions. [Talk to us](https://placematic.com/contact/).
