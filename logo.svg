@@ -8,23 +8,22 @@
 
   <style>
     .pm-logo-dot{
-      fill:var(--accent-2,#4E74F4);
+      fill:var(--accent-2,black);
     }
 
     .pm-title{
       font-family:"Inter", Sans-serif;
-      font-size:286px;
-      letter-spacing: -0.01em;
-      font-weight:300;
+      font-size:206px;
+      font-weight:500;
       fill:black;
       dominant-baseline:middle;
     }
 
     .pm-subtitle{
       font-family:Arial,Helvetica,sans-serif;
-      font-size:182px;
+      font-size:122px;
       letter-spacing: -0.01em;
-      font-weight:500;
+      font-weight:600;
       fill:#4E74F4;
       dominant-baseline:middle;
     }
@@ -55,8 +54,8 @@
   </text>
 
   <text
-      x="1800"
-      y="210"
+      x="1450"
+      y="200"
       class="pm-subtitle">
       API Docs
   </text>
