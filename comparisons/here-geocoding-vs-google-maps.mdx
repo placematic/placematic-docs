@@ -1,0 +1,396 @@
+---
+title: "HERE Geocoding vs Google Maps Geocoding"
+description: "Address precision, per-field confidence scoring, batch architecture, and why 'more accurate' cannot be answered without your own address dataset."
+---
+
+# HERE Geocoding vs Google Maps Geocoding
+
+**Choose HERE when your workload is address resolution at volume**, when you need per-field confidence rather than a single match level, or when batch geocoding is a meaningful fraction of your bill.
+
+**Choose Google when your product discovers places** — businesses, hours, reviews, categories. Its place database is better. Not marginally. Categorically.
+
+Most systems need both, and the right architecture says so out loud.
+
+## Comparison scope
+
+Geocoding, reverse geocoding, autocomplete, and place discovery.
+
+Not routing (see [HERE Routing vs Google Maps](/comparisons/here-routing-vs-google-maps)), not rendering, not platform-level ecosystem fit (see [HERE vs Google Maps](/comparisons/here-vs-google-maps)).
+
+HERE's capability is delivered through **Geocoding & Search v7**, which consolidated the former Geocoder API 6.2 and Places/Search APIs. Those legacy APIs are in maintenance and should not be used for new work.
+
+<Info>
+HERE Geocoding & Search v7 uses **per-endpoint hosts**, not one base URL:
+
+| Endpoint | Host |
+|---|---|
+| `/v1/geocode` | `geocode.search.hereapi.com` |
+| `/v1/revgeocode` | `revgeocode.search.hereapi.com` |
+| `/v1/autocomplete` | `autocomplete.search.hereapi.com` |
+| `/v1/autosuggest` | `autosuggest.search.hereapi.com` |
+| `/v1/discover` | `discover.search.hereapi.com` |
+
+This surprises teams building a single client. Verified July 2026 against [HERE Geocoding & Search documentation](https://docs.here.com/geocoding-and-search/docs/geocode).
+</Info>
+
+## Decision summary
+
+| Requirement | Better fit | Why |
+|---|---|---|
+| Street address → coordinates | Comparable | Both are strong. Test on your addresses |
+| Per-field match confidence | HERE | `fieldScore` breaks down confidence by address component |
+| Distinguishing rooftop from interpolated | HERE | `houseNumberType: PA` vs `interpolated` is explicit |
+| Structured query input | HERE | `qq` accepts typed fields; avoids free-text ambiguity |
+| Business POI discovery | Google | Place database, hours, reviews, photos |
+| Consumer autocomplete | Google | Typo tolerance and ranking from enormous query volume |
+| Batch geocoding at millions of records | HERE | Batch API v7 is a job API with a documented lifecycle |
+| Address deliverability validation | Neither | Use a postal-authority validation service |
+| Routing-aware coordinates | HERE | `access` returns the road-network entry point separate from `position` |
+| Cost at production volume | Depends | On mix, tier, batching, caching. Not on rate card |
+
+## Where HERE is stronger
+
+### Per-field confidence scoring
+
+This is the difference most evaluations miss, and it is the one that matters for data quality.
+
+HERE returns a `scoring` object on every geocode result:
+
+```json
+"scoring": {
+  "queryScore": 0.97,
+  "fieldScore": {
+    "country": 1,
+    "city": 1,
+    "streets": [1],
+    "houseNumber": 1,
+    "postalCode": 0.82
+  }
+}
+```
+*Response abbreviated. Source: [HERE geocode documentation](https://docs.here.com/geocoding-and-search/docs/geocode).*
+
+`queryScore` is overall match quality. `fieldScore` tells you *which component* was uncertain.
+
+<Tip>
+A result with `queryScore: 0.95` and `fieldScore.houseNumber: 0.4` matched the street confidently and the house number poorly. That is a different operational risk than `fieldScore.postalCode: 0.8` — one produces a failed delivery, the other does not.
+
+A single aggregate confidence number cannot express this. Store `fieldScore`.
+</Tip>
+
+Google returns `location_type` (`ROOFTOP`, `RANGE_INTERPOLATED`, `GEOMETRIC_CENTER`, `APPROXIMATE`) and `partial_match`. Useful, coarser.
+
+### Rooftop versus interpolated is explicit
+
+HERE returns `houseNumberType`, with `PA` indicating a point address and `interpolated` indicating a position estimated along a street segment.
+
+An interpolated address may be tens of metres from the actual building. For last-mile delivery that is the difference between the right door and the neighbour's.
+
+**Persist this field.** A system that stores coordinates without it cannot distinguish a surveyed rooftop from an arithmetic estimate.
+
+### `access` versus `position`
+
+HERE returns two coordinates per result:
+
+- `position` — the location of the address itself
+- `access` — the point on the road network where a vehicle would arrive
+
+For routing to an address, `access` is the correct target. Routing to `position` may route to the geometric centre of a building, or to a point separated from the road by a car park.
+
+Google's geocoding response does not distinguish these. This is a small, specific, real advantage for fleet and delivery systems.
+
+### Structured queries (`qq`)
+
+HERE accepts either free-text (`q`) or a structured query (`qq`) with typed fields:
+qq=street=rue de bale;city=Strasbourg;postalCode=67100;country=FRA
+For validating user-entered addresses, structured input outperforms free text plus a `types` filter.
+
+<Warning>
+Do not send both `q` and `qq` in the same request. HERE's own developer guidance notes that mixing them produces inconsistent `queryScore` values. Pick one.
+</Warning>
+
+### Batch geocoding architecture
+
+HERE's Batch API v7 is a **job API**: create → start → poll status → retrieve results → retrieve errors → delete. It is asynchronous by design, cheaper per record, and built for millions of rows.
+
+Three response codes routinely misread as failures:
+
+| Response | Meaning |
+|---|---|
+| `429` on job start | Concurrency limit reached. Queue |
+| `204` on errors endpoint | Zero errors. Not a failure |
+| `404` on results | Job has not succeeded yet |
+
+See [High-Volume Geocoding](/architecture/high-volume-geocoding).
+
+## Where Google is stronger
+
+### Place and business data
+
+<Warning>
+**For business names, opening hours, reviews, photos, and category coverage, Google's data is categorically better than HERE's.**
+
+Placematic sells HERE. We would rather you know this before a migration than after.
+</Warning>
+
+If your product answers "what's a good restaurant near me," that surface belongs on Google. HERE Geocoding & Search v7 substantially improved POI coverage over its predecessors, and it still is not competitive with Google's business database.
+
+### Consumer autocomplete
+
+Google's ranking, aliasing, and typo tolerance reflect consumer query volume HERE does not have. For a consumer search box, this is decisive.
+
+For a **street address field** — checkout, dispatch, delivery — HERE's `/autocomplete` is purpose-built and competitive.
+
+<Info>
+`/autocomplete` and `/autosuggest` are not synonyms and this is a common integration error.
+
+- **`/autocomplete`** — completes structured address input. Forms, checkout, delivery.
+- **`/autosuggest`** — broader discovery. Returns addresses, POIs, and categories. Handles misspellings.
+- **`/discover`** — actual place results for a query. This is the endpoint for "find restaurants," not `/geocode`.
+
+Source: [HERE developer best practices](https://www.here.com/learn/blog/here-geocoding-and-search-api-developer-insights-and-best-practices).
+</Info>
+
+### Ecosystem
+
+More engineers have integrated Google's geocoder. This is a real cost in your engineering budget.
+
+### Low volume
+
+Below roughly ten thousand geocodes per month, both are effectively free. Migration engineering exceeds the saving.
+
+## Where the difference is commercial or operational
+
+### Caching and storage terms
+
+<Warning>
+**Read your contract's caching and storage terms before designing a permanent geocode cache.** Both vendors place restrictions on retaining geocoded coordinates, and those restrictions differ by platform, by plan, and over time.
+
+We will not summarize them here because they change and because a summary that is wrong is worse than no summary. Verify with your account manager, and get the answer in writing.
+</Warning>
+
+This matters architecturally. A geocode cache is the single largest cost lever available — see [Caching Geocoding Results](/architecture/caching-geocoding-results) — and its permissibility is a contract term, not an engineering decision.
+
+### Pricing
+
+<Warning>
+We will not publish a savings percentage.
+
+Cost depends on API mix, monthly volume, region, contract terms, billing SKU, batching, and caching. These span more than an order of magnitude.
+</Warning>
+
+Structurally:
+
+- Both bill per request for real-time geocoding
+- HERE's Batch API prices differently from real-time; latency-tolerant work belongs there
+- Google bills autocomplete on a session-token model where sessions are used; HERE bills per request. **This means the meters do not translate.** A keystroke-level comparison and a session-level comparison are different measurements.
+- Free bundles are per-API and do not pool
+
+Current rates: [Google Maps Platform pricing](https://developers.google.com/maps/billing-and-pricing/pricing) · [Placematic pricing calculator](https://placematic.com/here-location-services/here-pricing/).
+
+## Why "more accurate" is not a number
+
+<Warning>
+Any vendor claiming a universal geocoding accuracy percentage is describing a benchmark on a dataset that is not yours.
+</Warning>
+
+Geocoding accuracy varies by:
+
+- **Country and region.** A platform strong in Germany may be weak in Indonesia.
+- **Urban versus rural.** Rooftop match rates diverge sharply.
+- **Address type.** Apartments, PO boxes, rural routes, new-build estates.
+- **Input quality.** Your own data's normalization determines much of the result.
+- **What "accurate" means.** Match rate? Positional error? Rooftop fraction? These optimize differently.
+
+A geocoder that resolves 97% of US urban addresses to rooftop may resolve 60% of your rural service-area addresses to a street centroid. Both statements can be true of the same platform.
+
+**Neither we nor any vendor can tell you which is more accurate for your data. We can tell you how to find out.**
+
+## How to evaluate with your own data
+
+Run this before you decide. It takes a day.
+
+**Assemble a representative set.** 1,000 addresses minimum, drawn from your actual data — not a curated list. Deliberately include:
+
+- Urban and rural, in your operating regions
+- Apartments, units, and suites
+- Rural routes and non-standard formats
+- New-build addresses (under two years old)
+- Addresses that have previously failed delivery
+- Deliberately misspelled and truncated variants
+- Every country you operate in, weighted by volume
+
+**Establish ground truth.** For a subset — 100 is enough — obtain verified coordinates. Site surveys, driver-confirmed delivery GPS, or parcel-level data from a local authority.
+
+**Measure four things separately:**
+
+| Metric | Definition |
+|---|---|
+| Match rate | Fraction returning any result |
+| Rooftop fraction | HERE: `houseNumberType: PA`. Google: `location_type: ROOFTOP` |
+| Positional error | Distance from ground truth, reported as a **distribution** — median, p90, p99 — not a mean |
+| Confidence calibration | Among results the platform scored highly, how many were actually correct? |
+
+<Tip>
+**Confidence calibration is the metric almost nobody measures and the one that determines data quality.**
+
+A geocoder with a lower match rate but well-calibrated confidence is *more useful* than one with a higher match rate and confidence scores that do not predict correctness. The first lets you route uncertain records to an exception queue. The second silently corrupts your database.
+
+Plot correctness against `queryScore` (HERE) and against `location_type` (Google). A well-calibrated geocoder produces a monotonic curve.
+</Tip>
+
+**Test the batch path separately.** Real-time and batch may return different results. If your production workload is batch, benchmark batch.
+
+**Forecast cost from actual call counts**, pulled from logs. Not estimates. Apply caching and deduplication to *both* platforms before comparing — otherwise you are comparing your inefficiency on two rate cards.
+
+## Architecture implications
+
+**Caching is platform-independent and dominates the bill.** Normalize, deduplicate, cache permanently, invalidate on events rather than on a TTL. This halves most geocoding bills before any vendor decision. See [Caching Geocoding Results](/architecture/caching-geocoding-results).
+
+**Store the confidence structure, not just coordinates.**
+
+<Warning>
+Storing a coordinate without its confidence score converts a probabilistic estimate into a fact. Every downstream consumer treats it as truth. A low-confidence fallback silently corrupts revenue maps, routes vehicles to centroids, and produces failed deliveries.
+</Warning>
+
+Persist: coordinates, `access` point, normalized address, `queryScore`, `fieldScore`, `houseNumberType`, `resultType`, `geocoded_at`.
+
+**Autocomplete is a debouncing problem, not a vendor problem.** Undebounced, it bills once per character typed. 200–300ms.
+
+**Per-endpoint hosts complicate a single HTTP client.** Minor, but it affects connection pooling and any allowlist your security team maintains.
+
+## Migration mapping
+
+| Google | HERE | Notes |
+|---|---|---|
+| Geocoding API | `GET geocode.search.hereapi.com/v1/geocode` | `q` for free text, `qq` for structured. Not both |
+| Reverse Geocoding API | `GET revgeocode.search.hereapi.com/v1/revgeocode` | `types=area` filters to admin areas |
+| Places Autocomplete | `/v1/autocomplete` (addresses) or `/v1/autosuggest` (places) | Two endpoints, not one |
+| Places Text Search / Nearby | `/v1/discover` | Not `/geocode` |
+| Place Details | `/v1/lookup` by HERE ID | Store the ID |
+| — | `POST /v1/multi-revgeocode` | Batch reverse geocoding in one request |
+| `location_type` | `houseNumberType` + `resultType` | Different taxonomies. Do not map naively |
+| `partial_match` | `queryScore` + `fieldScore` | Richer. Rebuild your quality logic |
+
+**Semantic differences:**
+
+**Coordinate order.** HERE returns `{"lat": ..., "lng": ...}`. GeoJSON is `[lng, lat]`.
+
+**Two coordinates per result.** `position` and `access`. Decide which your system means.
+
+**No universal confidence threshold.** A `queryScore` of 0.9 does not mean what a Google `partial_match: false` means. Recalibrate your thresholds against your own ground truth before cutover. Do not port the number.
+
+**Batch is a job lifecycle.** Not a bulk endpoint.
+
+See [Google Migration Architecture](/architecture/google-migration-architecture).
+
+## Cost model
+
+**What creates billable activity:**
+
+- One call per real-time geocode or reverse geocode
+- One call per autocomplete request — which is per keystroke unless debounced
+- Batch records, priced separately from real-time
+- Reverse-geocoding every GPS packet, which is 648,000 calls a day for 200 vehicles on a 10-second interval
+
+**Request multiplication risks:**
+
+Undebounced autocomplete. Reverse geocoding on packet ingest rather than on stop detection. Re-geocoding a stable customer address on every order. Looping single reverse-geocodes instead of `POST /multi-revgeocode`.
+
+**Batching opportunities:** anything written to a database rather than rendered to a screen.
+
+**Caching implications:** the single largest lever, subject to your contract's storage terms.
+
+## Common decision mistakes
+
+**Comparing per-1,000 rates.** Close at entry level. Meaningless.
+
+**Accepting a universal accuracy figure.** Including ours.
+
+**Comparing mean positional error.** Report the distribution. p99 is where failed deliveries live.
+
+**Not measuring confidence calibration.**
+
+**Migrating a consumer place-search feature to HERE for cost reasons.** The feature regresses. Users leave.
+
+**Using `/geocode` for place search.** That is `/discover`.
+
+**Confusing `/autocomplete` with `/autosuggest`.**
+
+**Sending `q` and `qq` together.**
+
+**Discarding `fieldScore` and `houseNumberType`.**
+
+**Routing to `position` instead of `access`.**
+
+**Porting confidence thresholds across platforms.**
+
+**Designing a permanent cache without reading the contract's storage terms.**
+
+**Migrating before caching and deduplicating.** You may be migrating waste.
+
+## Choose HERE when
+
+- Address resolution at volume is your workload
+- You need per-field confidence to drive an exception queue
+- Rooftop versus interpolated must be distinguishable
+- You route to addresses and need the road-network access point
+- Batch geocoding is a meaningful fraction of your bill
+- You already license HERE for routing and can consolidate
+
+## Choose Google when
+
+- Your product discovers businesses, and hours, reviews, or categories matter
+- Consumer autocomplete quality is a product differentiator
+- Your volume is low enough that migration engineering exceeds savings
+- Ecosystem familiarity and hiring are material constraints
+
+## The architecture most teams land on
+
+HERE for address resolution, batch geocoding, and routing. Google for consumer place discovery and business search.
+
+Two vendors, each doing what it is good at. **Document that as a decision** before someone frames it as a failed migration.
+
+## Related documentation
+
+<CardGroup cols={2}>
+  <Card title="Geocoding and Search" href="/guides/geocoding">
+    Endpoint selection, confidence scores, and the caching that halves the bill.
+  </Card>
+  <Card title="Address Validation" href="/use-cases/address-validation">
+    Why geocoding and deliverability validation are different products.
+  </Card>
+  <Card title="Caching Geocoding Results" href="/architecture/caching-geocoding-results">
+    Normalization, invalidation, and the privacy question.
+  </Card>
+  <Card title="High-Volume Geocoding" href="/architecture/high-volume-geocoding">
+    Millions of addresses, queues, idempotency, and what to monitor.
+  </Card>
+</CardGroup>
+
+Also: [Batch Geocoding](/guides/batch-geocoding) · [Reverse Geocoding](/guides/reverse-geocoding) · [Points of Interest](/guides/points-of-interest) · [HERE vs Google Maps](/comparisons/here-vs-google-maps)
+
+## Sources
+
+**HERE**
+- [Geocoding & Search v7 introduction](https://docs.here.com/geocoding-and-search/docs/introduction-to-here-geocoding-search-api-v7)
+- [Geocode endpoint](https://docs.here.com/geocoding-and-search/docs/geocode) — `scoring`, `fieldScore`, `houseNumberType`, `access`
+- [Spatial references](https://docs.here.com/geocoding-and-search/docs/code-geocode-spatial-reference)
+- [Developer insights and best practices](https://www.here.com/learn/blog/here-geocoding-and-search-api-developer-insights-and-best-practices)
+- [Batch API v7](https://www.here.com/docs/bundle/batch-api-v7-developer-guide/page/topics/batch-api-quick-start.html)
+
+**Google**
+- [Geocoding API](https://developers.google.com/maps/documentation/geocoding)
+- [Places API](https://developers.google.com/maps/documentation/places/web-service)
+- [Maps Platform pricing](https://developers.google.com/maps/billing-and-pricing/pricing)
+
+**Placematic**
+- [Commercial comparison and pricing overview](https://placematic.com/compare/here-geocoding-vs-google-maps/)
+
+*Verified July 2026. Endpoint hosts, response fields and pricing change; verify against primary sources.*
+
+---
+
+Need to compare these platforms with your own request mix?
+
+Placematic can help you run a technical and cost evaluation using representative routes, addresses and production volumes. Placematic is an official HERE Technologies reseller and implementation partner. [Cost Reduction Audit](https://placematic.com/here-location-services/cost-reduction-audit/).
