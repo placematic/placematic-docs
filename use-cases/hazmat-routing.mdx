@@ -76,7 +76,7 @@ flowchart TB
 <Info>
 `shippedHazardousGoods` is an **array** of cargo type values, not a boolean and not a single class. HERE's specification defines: `explosive`, `gas`, `flammable`, `combustible`, `organic`, `poison`, `radioactive`, `corrosive`, `poisonousInhalation`, `harmfulToWater`, `other`.
 `tunnelCategory` is a **separate parameter**, taking the ADR tunnel restriction code `B`, `C`, `D` or `E`. It governs which tunnels the vehicle may enter. It is not a hazmat class.
-A single shipment may carry several cargo types and one tunnel category. Do not map an internal `is_hazmat` boolean onto either. Read the definitions in the [Routing API v8 reference](https://www.here.com/docs/bundle/routing-api-v8-api-reference/page/index.html) and map your material classifications deliberately.
+A single shipment may carry several cargo types and one tunnel category. Do not map an internal `is_hazmat` boolean onto either. Read the definitions in the [Routing API v8 reference](https://docs.here.com/routing/reference/routing-api-v8-calculateroutes) and map your material classifications deliberately.
 </Info>
 
 **Physical constraints still apply.** Height in centimetres, `grossWeight` in kilograms, `axleCount` including trailers. A hazmat tanker is also a tall, heavy vehicle. Both constraint sets are required.
@@ -208,7 +208,7 @@ Also: [Routing](/guides/routing) · [Matrix Routing](/guides/matrix-routing) · 
 
 ## HERE documentation
 
-- [Routing API v8 reference](https://www.here.com/docs/bundle/routing-api-v8-api-reference/page/index.html) — `shippedHazardousGoods`, tunnel category, truck parameters
+- [Routing API v8 reference](https://docs.here.com/routing/reference/routing-api-v8-calculateroutes) — `shippedHazardousGoods`, tunnel category, truck parameters
 - [Transport modes](https://www.here.com/docs/bundle/routing-api-developer-guide-v8/page/topics/transport-modes.html)
 
 ## Placematic
