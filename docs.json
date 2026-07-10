@@ -36,7 +36,7 @@
     "tabs": [
       {
         "tab": "Getting Started",
-        "icon": "book-open",
+        "icon": "hand-wave",
         "groups": [
           {
             "group": "Start here",
@@ -174,11 +174,11 @@
       },
       {
         "tab": "FAQ",
-        "icon": "info",
+        "icon": "book",
         "groups": [
           {
             "group": "FAQ",
-            "icon": "info",
+            "icon": "book",
             "pages": [
               "faq/index",
               "faq/what-is-here-location-services",
