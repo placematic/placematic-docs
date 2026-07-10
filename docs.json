@@ -29,6 +29,9 @@
       "linkedin": "https://www.linkedin.com/company/placematic/"
     }
   },
+  "integrations": {
+    "ga4": { "measurementId": "G-PWKFD7XZ6M" }
+  },
   "navigation": {
     "tabs": [
       {
