@@ -76,8 +76,8 @@ curl "https://router.hereapi.com/v8/routes" \
   --data-urlencode "transportMode=truck" \
   --data-urlencode "origin=42.0641,-88.0509" \
   --data-urlencode "destination=41.5250,-88.0817" \
-  --data-urlencode "truck[height]=410" \
-  --data-urlencode "truck[grossWeight]=35000" \
+  --data-urlencode "vehicle[height]=410" \
+  --data-urlencode "vehicle[grossWeight]=35000" \
   --data-urlencode "return=summary"
 ```
 
@@ -92,8 +92,8 @@ resp = requests.get(
         "transportMode": "truck",
         "origin": "42.0641,-88.0509",
         "destination": "41.5250,-88.0817",
-        "truck[height]": 410,
-        "truck[grossWeight]": 35000,
+        "vehicle[height]": 410,
+        "vehicle[grossWeight]": 35000,
         "return": "summary",
     },
     timeout=10,
@@ -107,8 +107,8 @@ const params = new URLSearchParams({
   transportMode: "truck",
   origin: "42.0641,-88.0509",
   destination: "41.5250,-88.0817",
-  "truck[height]": "410",
-  "truck[grossWeight]": "35000",
+  "vehicle[height]": "410",
+  "vehicle[grossWeight]": "35000",
   return: "summary",
 });
 

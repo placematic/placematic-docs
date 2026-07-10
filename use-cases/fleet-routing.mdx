@@ -108,7 +108,7 @@ Step 7 is where fleet platforms fail catastrophically. The server computes a con
 **Test on trap geometry, in CI.** Route a 410cm vehicle through the 11foot8 bridge in Durham NC, Storrow Drive in Boston, and the Southern State Parkway on Long Island. Any path returned is a failure. Run the same three in `car` mode as a control.
 
 <Tip>
-Wire those three assertions into your test suite, not your QA checklist. A refactor that drops `truck[height]` from a params dict is invisible in code review and obvious in a failing test.
+Wire those three assertions into your test suite, not your QA checklist. A refactor that drops `vehicle[height]` from a params dict is invisible in code review and obvious in a failing test.
 </Tip>
 
 ## Scaling

@@ -40,8 +40,8 @@ curl -gX GET 'https://router.hereapi.com/v8/routes?'\
 'transportMode=truck&'\
 'origin=42.0641,-88.0509&'\
 'destination=41.5250,-88.0817&'\
-'truck[height]=410&'\
-'truck[grossWeight]=35000&'\
+'vehicle[height]=410&'\
+'vehicle[grossWeight]=35000&'\
 'truck[axleCount]=5&'\
 'return=summary,polyline&'\
 'apiKey=YOUR_API_KEY'
@@ -57,8 +57,8 @@ def truck_route(origin: str, destination: str) -> dict:
             "transportMode": "truck",
             "origin": origin,
             "destination": destination,
-            "truck[height]": 410,          # centimetres
-            "truck[grossWeight]": 35000,   # kilograms
+            "vehicle[height]": 410,          # centimetres
+            "vehicle[grossWeight]": 35000,   # kilograms
             "truck[axleCount]": 5,
             "return": "summary,polyline",
             "apiKey": os.environ["HERE_API_KEY"],
@@ -105,7 +105,7 @@ Route a vehicle with a height of 410 cm through these locations. If any returns 
 | Southern State Parkway, Long Island, NY | Commercial vehicles prohibited |
 
 <Tip>
-Wire these three into your CI suite as assertions, not as a manual QA step. A refactor that drops `truck[height]` from the params dict is invisible in code review and obvious in a failing test.
+Wire these three into your CI suite as assertions, not as a manual QA step. A refactor that drops `vehicle[height]` from the params dict is invisible in code review and obvious in a failing test.
 </Tip>
 
 Run the same three with `transportMode=car`. Every one should return a route. That is your control — it proves the test is exercising the constraint and not merely failing for an unrelated reason.

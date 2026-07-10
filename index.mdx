@@ -12,13 +12,13 @@ Start with a request that returns `200`.
 <CodeGroup>
 ```bash cURL
 curl "https://router.hereapi.com/v8/routes" -G \
-  --data-urlencode "apiKey=$HERE_API_KEY"
+  --data-urlencode "apiKey=$HERE_API_KEY" \
   --data-urlencode "transportMode=truck" \
   --data-urlencode "origin=42.0641,-88.0509" \
   --data-urlencode "destination=41.5250,-88.0817" \
   --data-urlencode "vehicle[height]=410" \
   --data-urlencode "vehicle[grossWeight]=35000" \
-  --data-urlencode "return=summary" \
+  --data-urlencode "return=summary"
 ```
 
 ```python Python

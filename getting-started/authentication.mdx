@@ -52,7 +52,7 @@ curl "https://router.hereapi.com/v8/routes" \
   --data-urlencode "transportMode=truck" \
   --data-urlencode "origin=42.0641,-88.0509" \
   --data-urlencode "destination=41.5250,-88.0817" \
-  --data-urlencode "truck[height]=410" \
+  --data-urlencode "vehicle[height]=410" \
   --data-urlencode "return=summary"
 ```
 
@@ -70,7 +70,7 @@ def route(origin: str, destination: str) -> dict:
             "transportMode": "truck",
             "origin": origin,
             "destination": destination,
-            "truck[height]": 410,
+            "vehicle[height]": 410,
             "return": "summary",
         },
         timeout=10,
@@ -91,7 +91,7 @@ async function route(origin, destination) {
     transportMode: "truck",
     origin,
     destination,
-    "truck[height]": "410",
+    "vehicle[height]": "410",
     return: "summary",
   });
 
