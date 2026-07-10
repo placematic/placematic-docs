@@ -1,0 +1,311 @@
+---
+title: "Reverse Geocode"
+description: "Coordinates to addresses with HERE Geocoding & Search v7 — single and multi-point, coordinate rounding, and the telematics pattern that decides your bill."
+---
+
+# Reverse Geocode
+
+**Problem:** I have a coordinate. I need the nearest address.
+
+<Warning>
+**Do not reverse-geocode raw GPS pings on ingest.**
+
+A vehicle emitting a position every ten seconds over a nine-hour shift produces 3,240 packets. Across 200 vehicles: 648,000 per day. The address is needed when a human looks at a screen or when a stop is detected. Not at 3:47:20am on I-80.
+</Warning>
+
+## Prerequisites
+
+- A HERE API key with Geocoding & Search entitlement
+- `export HERE_API_KEY="..."`
+
+<Info>
+Reverse geocoding is at `revgeocode.search.hereapi.com` — a different host from forward geocoding.
+</Info>
+
+## The code
+
+<CodeGroup>
+```python Python
+import os
+import time
+import requests
+
+HOST = "https://revgeocode.search.hereapi.com/v1/revgeocode"
+API_KEY = os.environ["HERE_API_KEY"]
+
+# ~5 decimal places ≈ 1 metre. GPS jitter defeats an exact-match cache;
+# a vehicle idling at a depot emits hundreds of points within one metre.
+COORD_PRECISION = 5
+
+_cache: dict[tuple[float, float], dict] = {}
+
+
+class EntitlementError(Exception): ...
+
+
+def _key(lat: float, lng: float) -> tuple[float, float]:
+    return (round(lat, COORD_PRECISION), round(lng, COORD_PRECISION))
+
+
+def reverse_geocode(
+    lat: float,
+    lng: float,
+    types: str | None = None,   # e.g. "area" for city/district only
+    radius_m: int | None = None,
+) -> dict | None:
+    """
+    Nearest address to a coordinate.
+
+    Returns None when nothing is nearby. That is a valid outcome.
+    """
+    k = _key(lat, lng)
+    if k in _cache:
+        return _cache[k]
+
+    params = {"at": f"{lat},{lng}", "limit": 1, "apiKey": API_KEY}
+    if types:
+        params["types"] = types
+    if radius_m:
+        # Spatial filter. Without one, a coordinate in the ocean
+        # eventually returns something.
+        params["in"] = f"circle:{lat},{lng};r={radius_m}"
+
+    backoff = 1.0
+    for _ in range(3):
+        resp = requests.get(HOST, params=params, timeout=10)
+        if resp.status_code == 403:
+            raise EntitlementError("Reverse geocoding not entitled")
+        if resp.status_code == 429 or resp.status_code >= 500:
+            time.sleep(backoff); backoff *= 2; continue
+        resp.raise_for_status()
+        break
+    else:
+        raise RuntimeError("Reverse geocode failed after retries")
+
+    items = resp.json().get("items", [])
+    if not items:
+        return None
+
+    it = items[0]
+    result = {
+        "label": it["address"]["label"],
+        "result_type": it["resultType"],
+        # A NEAREST MATCH, not a truth. In rural areas this may be
+        # several hundred metres away, on a different property.
+        "distance_m": it.get("distance"),
+        "position": it["position"],
+        "here_id": it["id"],
+    }
+    _cache[k] = result
+    return result
+
+
+def multi_reverse_geocode(points: list[dict]) -> list[dict]:
+    """
+    POST /v1/multi-revgeocode — resolves a LIST in one request.
+
+    If you are looping reverse_geocode() over a batch of detected stops,
+    you have made the same mistake as looping routing to build a matrix.
+    """
+    resp = requests.post(
+        "https://revgeocode.search.hereapi.com/v1/multi-revgeocode",
+        params={"apiKey": API_KEY},
+        json={"items": [
+            {"id": p["id"], "at": f"{p['lat']},{p['lng']}"} for p in points
+        ]},
+        timeout=30,
+    )
+    if resp.status_code == 403:
+        raise EntitlementError("Multi-revgeocode not entitled")
+    resp.raise_for_status()
+    return resp.json().get("items", [])
+
+
+# --- The pattern that decides your bill -----------------------------------
+def label_detected_stops(stops: list[dict]) -> list[dict]:
+    """
+    Geocode EVENTS, not packets.
+
+    Instrument the ratio of reverse-geocode calls to detected stops.
+    Anything meaningfully above 1 means you are geocoding pings.
+    """
+    return multi_reverse_geocode(stops)
+
+
+if __name__ == "__main__":
+    # A dispatcher clicked one vehicle. Resolve ONE address.
+    print(reverse_geocode(41.88432, -87.63877))
+
+    # Trip closed. Twelve detected stops. ONE request.
+    stops = [{"id": f"stop_{i}", "lat": 41.88 + i * 0.01, "lng": -87.63}
+             for i in range(12)]
+    for item in label_detected_stops(stops):
+        print(item.get("id"), item.get("title"))
+```
+
+```javascript Node.js
+const HOST = "https://revgeocode.search.hereapi.com/v1/revgeocode";
+const MULTI = "https://revgeocode.search.hereapi.com/v1/multi-revgeocode";
+const API_KEY = process.env.HERE_API_KEY;
+const PRECISION = 5;   // ~1 metre
+
+const cache = new Map();
+const key = (lat, lng) => `${lat.toFixed(PRECISION)},${lng.toFixed(PRECISION)}`;
+
+export async function reverseGeocode(lat, lng, { types, radiusM } = {}) {
+  const k = key(lat, lng);
+  if (cache.has(k)) return cache.get(k);
+
+  const params = new URLSearchParams({ at: `${lat},${lng}`, limit: "1", apiKey: API_KEY });
+  if (types) params.set("types", types);
+  if (radiusM) params.set("in", `circle:${lat},${lng};r=${radiusM}`);
+
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 10_000);
+  let resp;
+  try { resp = await fetch(`${HOST}?${params}`, { signal: ctrl.signal }); }
+  finally { clearTimeout(t); }
+
+  if (resp.status === 403) throw new Error("Reverse geocoding not entitled");
+  if (!resp.ok) throw new Error(`HERE returned ${resp.status}`);
+
+  const { items = [] } = await resp.json();
+  if (!items.length) return null;
+
+  const result = {
+    label: items[0].address.label,
+    resultType: items[0].resultType,
+    distanceM: items[0].distance,
+    position: items[0].position,
+    hereId: items[0].id,
+  };
+  cache.set(k, result);
+  return result;
+}
+
+/** One request for many coordinates. Do not loop the single endpoint. */
+export async function multiReverseGeocode(points) {
+  const resp = await fetch(`${MULTI}?apiKey=${API_KEY}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      items: points.map((p) => ({ id: p.id, at: `${p.lat},${p.lng}` })),
+    }),
+  });
+  if (!resp.ok) throw new Error(`HERE returned ${resp.status}`);
+  return (await resp.json()).items ?? [];
+}
+```
+
+```bash cURL
+# Nearest address
+curl -G 'https://revgeocode.search.hereapi.com/v1/revgeocode' \
+  --data-urlencode 'at=41.88432,-87.63877' \
+  --data-urlencode 'limit=1' \
+  --data-urlencode "apiKey=${HERE_API_KEY}"
+
+# City / district only — no street address needed
+curl -G 'https://revgeocode.search.hereapi.com/v1/revgeocode' \
+  --data-urlencode 'at=53.51246,25.98294' \
+  --data-urlencode 'types=area' \
+  --data-urlencode 'limit=1' \
+  --data-urlencode "apiKey=${HERE_API_KEY}"
+
+# Many coordinates, one request
+curl -X POST "https://revgeocode.search.hereapi.com/v1/multi-revgeocode?apiKey=${HERE_API_KEY}" \
+  -H 'Content-Type: application/json' \
+  -d '{"items":[
+        {"id":"stop_1","at":"41.88432,-87.63877"},
+        {"id":"stop_2","at":"41.90280,-87.63170"}
+      ]}'
+```
+</CodeGroup>
+
+## Response walkthrough
+
+```json
+{
+  "items": [{
+    "title": "32 Tremont St, Boston, MA 02108-3201, United States",
+    "id": "here:af:streetsection:bTM9lA13maMMGHDXOCPTRA:...",
+    "resultType": "houseNumber",
+    "address": { "label": "...", "postalCode": "02108-3201" },
+    "position": { "lat": 42.35852, "lng": -71.05977 },
+    "access": [{ "lat": 42.3586, "lng": -71.06 }],
+    "distance": 280,
+    "scoring": { "queryScore": 1, "fieldScore": { "houseNumber": 1 } }
+  }]
+}
+```
+
+**`distance`** — metres from your query coordinate to the returned address.
+
+<Warning>
+**A returned address is a nearest match, not a truth.** The coordinate sits *somewhere*; HERE returns the closest addressable feature.
+
+`distance: 280` means the nearest address is 280 metres away — in rural areas, potentially on a different property. **Store the original coordinate alongside the resolved address.**
+</Warning>
+
+**`types=area`** filters to administrative areas — city, district, region — when you do not need a street address.
+
+## Common mistakes
+
+**Reverse-geocoding on packet ingest.** The dominant cost error in telematics.
+
+**Looping `/revgeocode` over a list.** `/multi-revgeocode` exists.
+
+**No coordinate rounding before cache lookup.** Sub-metre jitter, zero hits.
+
+**Ignoring heading.** On a divided highway, a coordinate 15 metres from the centreline resolves to either carriageway. Provide the drive direction where telematics supplies it — it is free accuracy and it removes "the truck is on the wrong side of the interstate" tickets.
+
+**Using this to snap a GPS trace to roads.** That is [Route Matching](/examples/route-matching), and only Route Matching survives an audit.
+
+**Using this for geofence containment.** That is `ST_Contains` against a polygon in your own database. See [Geofencing](/use-cases/geofencing).
+
+**Storing the nearest address as the vehicle's true location.**
+
+**Real-time endpoints for historical enrichment.** [Batch](/examples/batch-geocoding) it.
+
+**No spatial filter.** A coordinate in the ocean returns something eventually.
+
+## Production considerations
+
+**Trigger on stop detection, not on packet arrival.** One address per stop, not 24.
+
+**Instrument the ratio.** Reverse-geocode calls ÷ detected stops. Near 1 is correct.
+
+**Cache by rounded coordinate.** ~5 decimal places.
+
+**Resolve depots and customer sites once, permanently.** Known, fixed, finite.
+
+**Batch the historical backfill.** Six months of trip history is a job, not a stream.
+
+**Geocode lazily on view.** A dispatcher watching one vehicle needs one address. Do not pre-resolve the other 199.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Reverse Geocoding" href="/guides/reverse-geocoding">
+    Drive-direction snapping, spatial filters, and result types.
+  </Card>
+  <Card title="Vehicle Tracking" href="/use-cases/vehicle-tracking">
+    Ingesting GPS without touching an API per packet.
+  </Card>
+  <Card title="Route Matching" href="/examples/route-matching">
+    What this is not.
+  </Card>
+  <Card title="Geofencing" href="/use-cases/geofencing">
+    Containment is a spatial query, not a geocode.
+  </Card>
+</CardGroup>
+
+## HERE documentation
+
+- [Geocoding & Search v7 introduction](https://docs.here.com/geocoding-and-search/docs/introduction-to-here-geocoding-search-api-v7)
+- [Spatial references](https://docs.here.com/geocoding-and-search/docs/code-geocode-spatial-reference)
+
+---
+
+Need production HERE API keys or implementation support?
+
+Placematic is an official HERE Technologies reseller and implementation partner. [Talk to us](https://placematic.com/contact/).

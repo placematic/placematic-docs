@@ -1,0 +1,267 @@
+---
+title: "Calculate an EV Route"
+description: "Electric vehicle routing with HERE Routing v8 — consumption curves, charge state, and charging stops returned as postActions."
+---
+
+# Calculate an EV Route
+
+**Problem:** Route an electric vehicle to a destination it cannot reach on its current charge.
+
+<Warning>
+This is not car routing with a range filter. The vehicle's ability to reach charger three depends on whether it stopped at charger one.
+
+You cannot approximate it by post-processing a car route against a charger database.
+</Warning>
+
+## Prerequisites
+
+- A HERE API key with Routing entitlement
+- `export HERE_API_KEY="..."`
+
+<Info>
+**EV routing is a capability within the Routing API**, at the same `router.hereapi.com/v8/routes` endpoint. It is not a separate service.
+
+The **HERE EV Charge Points API** — for finding and describing charging infrastructure — is a *different product* with a *separate entitlement*. A key that routes EVs may return `403` from charge points.
+</Info>
+
+## The code
+
+<CodeGroup>
+```python Python
+import os
+import requests
+
+HOST = "https://router.hereapi.com/v8/routes"
+API_KEY = os.environ["HERE_API_KEY"]
+
+
+class EntitlementError(Exception): ...
+class NoRouteError(Exception): ...
+
+
+# --- Vehicle energy profile: MODEL DATA, not call-site literals -------------
+# freeFlowSpeedTable / trafficSpeedTable are speed→consumption CURVES.
+# Format: "speed_kmh,kWh_per_km, speed_kmh,kWh_per_km, ..."
+# A linear assumption is optimistic on highways and catastrophically
+# optimistic on grades.
+EV_PROFILE = {
+    "ev[freeFlowSpeedTable]":
+        "0,0.239,27,0.239,45,0.259,60,0.196,75,0.207,"
+        "90,0.238,100,0.26,110,0.296,120,0.337,130,0.351,250,0.351",
+    "ev[trafficSpeedTable]":
+        "0,0.349,27,0.319,45,0.329,60,0.266,75,0.287,"
+        "90,0.318,100,0.33,110,0.335,120,0.35,130,0.36,250,0.36",
+    "ev[auxiliaryConsumption]": 1.8,   # kW — climate, refrigeration
+    "ev[ascent]": 9,                   # Wh per metre of elevation gain
+    "ev[descent]": 4.3,                # Wh recuperated per metre of loss
+    # Max charging rate at a given charge level: "kWh,kW, kWh,kW, ..."
+    "ev[chargingCurve]":
+        "0,239,32,199,56,167,60,130,64,111,68,83,72,55,76,33,78,17,80,1",
+    "ev[maxCharge]": 80,                       # kWh — battery capacity
+    "ev[maxChargeAfterChargingStation]": 72,   # do not charge to 100%
+    "ev[minChargeAtChargingStation]": 8,       # arrive with a buffer
+    "ev[minChargeAtDestination]": 8,
+    "ev[chargingSetupDuration]": 300,          # seconds: park, plug, auth
+    "ev[connectorTypes]": "iec62196Type2Combo,Chademo,Tesla",
+}
+
+
+def ev_route(origin: str, destination: str, initial_charge_kwh: float) -> dict:
+    """
+    Route an EV, inserting charging stops if needed.
+
+    `initialCharge` is an INPUT, not an assumption. A vehicle at 22% produces
+    a materially different route than the same vehicle at 90%. If telematics
+    provides live state of charge, use it. If not, tell the driver the ETA
+    assumes a full battery.
+    """
+    params = {
+        "transportMode": "car",
+        "origin": origin,
+        "destination": destination,
+        "return": "summary,polyline",
+        # ev[makeReachable]=true lets the engine INSERT charging stops.
+        # Without it, an unreachable destination returns no route.
+        "ev[makeReachable]": "true",
+        "ev[initialCharge]": initial_charge_kwh,
+        "apiKey": API_KEY,
+        **EV_PROFILE,
+    }
+
+    resp = requests.get(HOST, params=params, timeout=30)
+    if resp.status_code == 403:
+        raise EntitlementError("EV routing not entitled")
+    resp.raise_for_status()
+
+    body = resp.json()
+    if not body.get("routes"):
+        raise NoRouteError(str(body.get("notice", [])))
+
+    sections = body["routes"][0]["sections"]
+
+    # Charging stops appear as `postActions` on a section.
+    # Model them as FIRST-CLASS SCHEDULE EVENTS — a 45-minute stop is
+    # 45 minutes the vehicle is not delivering.
+    stops = []
+    for i, s in enumerate(sections):
+        for pa in s.get("postActions", []):
+            if pa.get("action") == "charging":
+                stops.append({
+                    "after_section": i,
+                    "duration_s": pa.get("duration"),
+                    "charge_before": s.get("arrival", {}).get("charge"),
+                    "charge_after": pa.get("targetCharge"),
+                })
+
+    drive_s = sum(s["summary"]["duration"] for s in sections)
+    charge_s = sum(st["duration_s"] or 0 for st in stops)
+
+    return {
+        "drive_duration_s": drive_s,
+        "charging_duration_s": charge_s,
+        "total_duration_s": drive_s + charge_s,   # ← what the dispatcher needs
+        "charging_stops": stops,
+        "sections": len(sections),
+    }
+
+
+if __name__ == "__main__":
+    r = ev_route("52.533959,13.404780", "51.741505,14.352413",
+                 initial_charge_kwh=48)
+    print(f"Drive {r['drive_duration_s']}s + charge {r['charging_duration_s']}s")
+    for st in r["charging_stops"]:
+        print(f"  charge {st['duration_s']}s → {st['charge_after']} kWh")
+```
+
+```bash cURL
+# Verified against HERE's EV routing developer guide.
+# departureTime=any disables traffic-aware routing.
+curl -X GET \
+  'https://router.hereapi.com/v8/routes?\
+transportMode=car&\
+origin=52.533959,13.404780&\
+destination=51.741505,14.352413&\
+departureTime=any&\
+return=summary&\
+ev[makeReachable]=true&\
+ev[initialCharge]=48&\
+ev[maxCharge]=80&\
+ev[maxChargeAfterChargingStation]=72&\
+ev[connectorTypes]=iec62196Type2Combo&\
+ev[freeFlowSpeedTable]=0,0.239,27,0.239,45,0.259,60,0.196,75,0.207,90,0.238,100,0.26,110,0.296,120,0.337,130,0.351,250,0.351&\
+ev[trafficSpeedTable]=0,0.349,27,0.319,45,0.329,60,0.266,75,0.287,90,0.318,100,0.33,110,0.335,120,0.35,130,0.36,250,0.36&\
+ev[auxiliaryConsumption]=1.8&\
+ev[ascent]=9&\
+ev[descent]=4.3&\
+ev[chargingCurve]=0,239,32,199,56,167,60,130,64,111,68,83,72,55,76,33,78,17,80,1&\
+apikey='"${HERE_API_KEY}"
+```
+</CodeGroup>
+
+## Response walkthrough
+
+With EV parameters enabled, each section's `departure` and `arrival` blocks carry the battery charge at that point, and charging stops appear as **`postActions`**.
+
+```json
+{
+  "routes": [{
+    "sections": [{
+      "departure": { "charge": 48.0, "place": {...} },
+      "arrival":   { "charge": 8.4,  "place": {...} },
+      "summary": { "duration": 4210, "length": 118000 },
+      "postActions": [
+        { "action": "charging", "duration": 1980, "targetCharge": 72.0 }
+      ]
+    }, {
+      "departure": { "charge": 72.0 },
+      "arrival":   { "charge": 21.5 }
+    }]
+  }]
+}
+```
+
+<Warning>
+**`summary.duration` is drive time only.** The charging stop's `duration` is separate, in `postActions`.
+
+A UI that shows `summary.duration` as the ETA has silently omitted 33 minutes of charging. Sum both.
+</Warning>
+
+## Key parameters
+
+| Parameter | Meaning |
+|---|---|
+| `ev[initialCharge]` | Charge at departure, kWh. **An input, not an assumption** |
+| `ev[maxCharge]` | Battery capacity, kWh |
+| `ev[makeReachable]` | `true` lets the engine insert charging stops |
+| `ev[freeFlowSpeedTable]` | Speed → consumption curve, free-flow |
+| `ev[trafficSpeedTable]` | Speed → consumption curve, in traffic |
+| `ev[chargingCurve]` | Charge level → max charging rate |
+| `ev[ascent]` / `ev[descent]` | Wh per metre of elevation gain / loss |
+| `ev[auxiliaryConsumption]` | kW for climate, refrigeration |
+| `ev[maxChargeAfterChargingStation]` | Charging past ~90% is slow. Cap it |
+| `ev[connectorTypes]` | Comma-separated. Vehicle-compatible types only |
+
+## Common mistakes
+
+**Filtering a car route against a charger table.**
+
+**Assuming full charge.** Nearly every real dispatch begins at partial charge.
+
+**Omitting `ev[makeReachable]`.** An unreachable destination returns no route rather than a route with a charging stop.
+
+**A linear consumption model.** Highways and grades break it.
+
+**Ignoring `auxiliaryConsumption`.** Refrigerated vans in July.
+
+**Reading only `summary.duration`.** Charging time is in `postActions`.
+
+**Hiding the charging stop inside the polyline.** Drivers and dispatchers both need it surfaced.
+
+**Routing commercial EVs against passenger charging data.** Different connectors, inaccessible sites. HERE documents EV truck charging as a distinct concern.
+
+**Assuming your routing key queries charge points.** Separate entitlement.
+
+**Treating charger availability as static.** A confidently routed truck arriving at an occupied charger, with no range to reach an alternative, is worse than no routing.
+
+## Production considerations
+
+**Energy profile is model data.** Battery capacity, consumption curve, connector types, charging curve. On the vehicle record. Never at a call site.
+
+**Pre-check feasibility cheaply.** Range versus straight-line distance rejects most infeasible assignments before you compute anything. See [Fleet Electrification](/use-cases/fleet-electrification).
+
+**Use live state of charge** where telematics provides it. Disclose the assumption where it does not.
+
+**Model the charging stop as a schedule event.** The vehicle is unavailable for 33 minutes.
+
+**Cache the charger network, not availability.** Stations move slowly. Availability changes by the minute — and availability is a query against the *EV Charge Points API*, a separate product.
+
+**Cap `maxChargeAfterChargingStation`.** Charging from 80% to 100% takes disproportionately long. `chargingCurve` encodes this; setting the cap uses it.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="EV Routing" href="/guides/ev-routing">
+    Routing versus charge points, and the two-product distinction.
+  </Card>
+  <Card title="Fleet Electrification" href="/use-cases/fleet-electrification">
+    Answering feasibility before you buy trucks — usually without this API.
+  </Card>
+  <Card title="EV Charging Applications" href="/use-cases/ev-charging">
+    The dispatch-time architecture.
+  </Card>
+  <Card title="Calculate an Isochrone" href="/examples/calculate-isochrone">
+    `range[type]=consumption` — everywhere reachable on this charge.
+  </Card>
+</CardGroup>
+
+## HERE documentation
+
+- [EV routing in Routing API v8](https://www.here.com/docs/bundle/routing-api-developer-guide-v8/page/concepts/ev-routing.html)
+- [Calculate a route with charging](https://developer.here.com/documentation/routing-api/dev_guide/topics/use-cases/calculate-route-with-charging.html)
+- [HERE EV Charge Points API v3](https://www.here.com/docs/category/ev-charge-points-api-v3) — separate product
+
+---
+
+Need production HERE API keys or implementation support?
+
+Placematic is an official HERE Technologies reseller and implementation partner. [Talk to us](https://placematic.com/contact/).

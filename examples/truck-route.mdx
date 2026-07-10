@@ -1,0 +1,308 @@
+---
+title: "Calculate a Truck Route"
+description: "Commercial vehicle routing with HERE Routing v8 — physical constraints, the units that will catch you, and CI assertions against real trap geometry."
+---
+
+# Calculate a Truck Route
+
+**Problem:** I need a route a 53-foot trailer can physically and legally drive.
+
+<Warning>
+`transportMode=truck` selects the truck routing **engine**. It does not tell HERE how tall your vehicle is.
+
+Omit the dimensions and you get a route. It returns `200`. It contains a polyline. It may route a 4.1-metre trailer under a 3.4-metre bridge, and HERE will not warn you, because you did not tell it there was a trailer.
+</Warning>
+
+## Prerequisites
+
+- A HERE API key with Routing entitlement
+- **Confirm truck routing entitlement specifically** — free-tier product coverage varies and should not be assumed
+- `export HERE_API_KEY="..."`
+
+## The code
+
+<CodeGroup>
+```python Python
+import os
+import time
+from dataclasses import dataclass, asdict
+import requests
+
+HOST = "https://router.hereapi.com/v8/routes"
+API_KEY = os.environ["HERE_API_KEY"]
+
+
+@dataclass(frozen=True)
+class TruckProfile:
+    """
+    Vehicle constraints. These belong on the VEHICLE RECORD in your database,
+    never hardcoded at a call site. A refactor that drops one is invisible in
+    code review and returns 200.
+
+    UNITS ARE NOT OBVIOUS AND ARE NOT VALIDATED FOR PLAUSIBILITY.
+    """
+    height_cm: int          # centimetres. 410 = 4.1 m
+    gross_weight_kg: int    # kilograms
+    axle_count: int         # base vehicle + ALL trailers
+    width_cm: int | None = None
+    length_cm: int | None = None
+    trailer_count: int | None = None
+
+    def to_params(self) -> dict:
+        p = {
+            "vehicle[height]": self.height_cm,
+            "vehicle[grossWeight]": self.gross_weight_kg,
+            "vehicle[axleCount]": self.axle_count,
+        }
+        if self.width_cm:      p["vehicle[width]"] = self.width_cm
+        if self.length_cm:     p["vehicle[length]"] = self.length_cm
+        if self.trailer_count: p["vehicle[trailerCount]"] = self.trailer_count
+        return p
+
+
+class EntitlementError(Exception): ...
+class NoRouteError(Exception):
+    """No LEGAL path exists. Correct outcome. Do not relax constraints."""
+
+
+def truck_route(origin: str, destination: str, profile: TruckProfile) -> dict:
+    if profile.height_cm > 500:
+        raise ValueError("height_cm looks like millimetres")
+    if profile.height_cm < 100:
+        raise ValueError("height_cm looks like metres — you meant centimetres")
+
+    params = {
+        "transportMode": "truck",
+        "origin": origin,
+        "destination": destination,
+        "return": "summary,polyline",
+        "apiKey": API_KEY,
+        **profile.to_params(),
+    }
+
+    backoff = 1.0
+    for _ in range(3):
+        resp = requests.get(HOST, params=params, timeout=20)
+        if resp.status_code == 403:
+            raise EntitlementError("Truck routing not entitled")
+        if resp.status_code == 429 or resp.status_code >= 500:
+            time.sleep(backoff); backoff *= 2; continue
+        resp.raise_for_status()
+        break
+    else:
+        raise RuntimeError("Truck routing failed after retries")
+
+    body = resp.json()
+    if not body.get("routes"):
+        raise NoRouteError(str(body.get("notice", [])))
+
+    s = body["routes"][0]["sections"][0]
+    return {"duration_s": s["summary"]["duration"],
+            "length_m": s["summary"]["length"],
+            "polyline": s.get("polyline")}
+
+
+if __name__ == "__main__":
+    fleet_profile = TruckProfile(height_cm=410, gross_weight_kg=35000, axle_count=5)
+    try:
+        r = truck_route("42.0641,-88.0509", "41.5250,-88.0817", fleet_profile)
+        print(r["duration_s"], r["length_m"])
+    except NoRouteError:
+        # Escalate to a dispatcher. Do NOT fall back to car routing.
+        print("No legal route for this vehicle")
+```
+
+```javascript Node.js
+const HOST = "https://router.hereapi.com/v8/routes";
+const API_KEY = process.env.HERE_API_KEY;
+
+class EntitlementError extends Error {}
+class NoRouteError extends Error {}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * @param {{heightCm:number, grossWeightKg:number, axleCount:number}} profile
+ *   Constraints belong on the vehicle record. Never hardcode them here.
+ *   heightCm is CENTIMETRES. Passing 4.1 declares a 4cm truck.
+ */
+export async function truckRoute(origin, destination, profile) {
+  if (profile.heightCm < 100 || profile.heightCm > 500) {
+    throw new Error(`heightCm=${profile.heightCm} — wrong unit?`);
+  }
+
+  const params = new URLSearchParams({
+    transportMode: "truck",
+    origin,
+    destination,
+    return: "summary,polyline",
+    "vehicle[height]": String(profile.heightCm),
+    "vehicle[grossWeight]": String(profile.grossWeightKg),
+    "vehicle[axleCount]": String(profile.axleCount),
+    apiKey: API_KEY,
+  });
+
+  let backoff = 1000;
+  let resp;
+  for (let i = 0; i < 3; i++) {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 20_000);
+    try { resp = await fetch(`${HOST}?${params}`, { signal: ctrl.signal }); }
+    finally { clearTimeout(t); }
+
+    if (resp.status === 403) throw new EntitlementError("Truck routing not entitled");
+    if (resp.status === 429 || resp.status >= 500) {
+      await sleep(backoff + Math.random() * 250); backoff *= 2; continue;
+    }
+    if (!resp.ok) throw new Error(`HERE returned ${resp.status}`);
+    break;
+  }
+
+  const body = await resp.json();
+  if (!body.routes?.length) throw new NoRouteError(JSON.stringify(body.notice ?? []));
+
+  const { summary, polyline } = body.routes[0].sections[0];
+  return { durationS: summary.duration, lengthM: summary.length, polyline };
+}
+```
+
+```bash cURL
+curl -gX GET 'https://router.hereapi.com/v8/routes' \
+  --data-urlencode 'transportMode=truck' \
+  --data-urlencode 'origin=42.0641,-88.0509' \
+  --data-urlencode 'destination=41.5250,-88.0817' \
+  --data-urlencode 'vehicle[height]=410' \
+  --data-urlencode 'vehicle[grossWeight]=35000' \
+  --data-urlencode 'vehicle[axleCount]=5' \
+  --data-urlencode 'return=summary,polyline' \
+  --data-urlencode "apiKey=${HERE_API_KEY}" \
+  -G
+```
+</CodeGroup>
+
+<Info>
+**`vehicle` supersedes `truck`.** The `truck` object is marked deprecated in the current v8 specification. `weightLimit` is deprecated in favour of `grossWeight`. If you are reading a 2021 tutorial, you are reading deprecated parameters.
+</Info>
+
+## Units
+
+| Parameter | Unit | A common wrong value |
+|---|---|---|
+| `vehicle[height]` | **centimetres** | `4.1` → a four-centimetre truck |
+| `vehicle[grossWeight]` | **kilograms** | `35` → a 35 kg truck |
+| `vehicle[axleCount]` | count, 2–255 | tractor only, omitting trailers |
+
+<Warning>
+Units are not validated for plausibility. Pass `4.1` and HERE routes a four-centimetre vehicle under every bridge in North America. The response is `200`.
+
+The validation in the Python example above exists for exactly this reason.
+</Warning>
+
+## Verify the constraints are actually applied
+
+<Warning>
+**Do not ship truck routing without this test.** It is the reason bridge strikes make the news.
+</Warning>
+
+Route a 410 cm vehicle through these. **Any path returned is a failure.**
+
+| Location | Coordinates (approx) |
+|---|---|
+| 11foot8 bridge, Durham NC | `35.9993,-78.9105` → `35.9975,-78.9060` |
+| Storrow Drive, Boston MA | Commercial vehicles prohibited |
+| Southern State Parkway, Long Island NY | Commercial vehicles prohibited |
+
+```python
+import pytest
+
+TRAPS = [
+    ("11foot8", "35.9993,-78.9105", "35.9975,-78.9060"),
+    # Add Storrow Drive and Southern State Parkway coordinates
+    # verified against your own map inspection.
+]
+TALL_TRUCK = TruckProfile(height_cm=410, gross_weight_kg=35000, axle_count=5)
+
+
+@pytest.mark.parametrize("name,origin,dest", TRAPS)
+def test_truck_refuses_trap(name, origin, dest):
+    """A constrained truck must NOT be routed through these."""
+    with pytest.raises(NoRouteError):
+        truck_route(origin, dest, TALL_TRUCK)
+
+
+@pytest.mark.parametrize("name,origin,dest", TRAPS)
+def test_car_control_routes(name, origin, dest):
+    """Control: a car MUST route. Proves the test exercises the constraint
+    rather than failing for an unrelated reason (bad coords, network, etc)."""
+    car_route(origin, dest)  # must not raise
+```
+
+<Tip>
+Wire these into CI, not a manual QA checklist. A refactor that drops `vehicle[height]` from the params dict is invisible in code review and obvious in a failing test.
+
+The car-mode control is not optional. Without it, a test that fails because your coordinates are wrong looks identical to a test that passes because the constraint worked.
+</Tip>
+
+## Common mistakes
+
+**Setting `transportMode=truck` and stopping there.** The engine is selected. The vehicle is not described.
+
+**Passing metres instead of centimetres.**
+
+**Counting only the tractor's axles.** `axleCount` includes trailers.
+
+**Using deprecated `truck[...]` or `weightLimit`.**
+
+**Hardcoding dimensions at the call site.** They belong on the vehicle record.
+
+**Treating `NoRouteError` as a failure to retry with relaxed constraints.** That produces an illegal route.
+
+**Falling back to car routing.** Worse than failing.
+
+**Constraints on the server, absent on the device.** The driver deviates, the phone reroutes, and the constraint set never left your backend. Push the profile to the device.
+
+**Assuming `category=lightTruck` waives dimension limits.** It waives certain legal restrictions. Bridges do not care about your category.
+
+## Production considerations
+
+**Vehicle profiles are model data.** Store them once. Validate at write time — a vehicle record with a null height should fail before it reaches a routing call.
+
+**Truck routing is slower than car routing.** More constraints, larger search space. Size your timeouts.
+
+**Confirm entitlement before scoping a pilot.** Truck routing inclusion in the free tier should be verified against your specific account.
+
+**For many-to-many truck travel times**, Matrix Routing accepts truck parameters. Do not loop. See [Distance Matrix](/examples/distance-matrix).
+
+**For hazmat**, add `shippedHazardousGoods` (an array of cargo types) and `tunnelCategory` (`B`|`C`|`D`|`E`). These are different parameters governing different things. See [Hazmat Routing](/use-cases/hazmat-routing).
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Truck Routing" href="/guides/truck-routing">
+    The full constraint set and why omitting one is silent.
+  </Card>
+  <Card title="Fleet Routing" href="/use-cases/fleet-routing">
+    Where the profile lives, and how it reaches the device.
+  </Card>
+  <Card title="Hazmat Routing" href="/use-cases/hazmat-routing">
+    Cargo types, tunnel categories, and refusing to route.
+  </Card>
+  <Card title="Routing System Architecture" href="/architecture/routing-system-architecture">
+    Constraints belong on records, never at call sites.
+  </Card>
+</CardGroup>
+
+## HERE documentation
+
+- [Routing API v8 reference](https://www.here.com/docs/bundle/routing-api-v8-api-reference/page/index.html) — full `vehicle` parameter table
+- [Transport modes](https://www.here.com/docs/bundle/routing-api-developer-guide-v8/page/topics/transport-modes.html)
+
+## Placematic
+
+- [Truck Routing](https://placematic.com/here-location-services/truck-routing/)
+
+---
+
+Need production HERE API keys or implementation support?
+
+Placematic is an official HERE Technologies reseller and implementation partner. We have deployed HERE truck routing into production ELD systems. [Talk to us](https://placematic.com/contact/).

@@ -1,0 +1,312 @@
+---
+title: "Tour Planning"
+description: "Solving a Vehicle Routing Problem with HERE Tour Planning v3 — the async lifecycle, the profile reference that trips everyone, and unassigned jobs as a first-class outcome."
+---
+
+# Tour Planning
+
+**Problem:** Twelve vehicles, sixty stops, appointment windows, capacity. Which vehicle goes where, in what order?
+
+<Warning>
+If you are writing a nearest-neighbour heuristic to avoid a licensing conversation, stop. **HERE documents Tour Planning as included in the HERE Base Plan.**
+
+Confirm your own entitlement — Base Plan inclusion and your contract's inclusion are separate facts.
+</Warning>
+
+## Prerequisites
+
+- A HERE API key or OAuth token with Tour Planning entitlement
+- `export HERE_API_KEY="..."`
+
+## The code
+
+<CodeGroup>
+```python Python
+import os
+import time
+import requests
+
+BASE = "https://tourplanning.hereapi.com/v3"
+API_KEY = os.environ["HERE_API_KEY"]
+
+
+class EntitlementError(Exception): ...
+class SolveTimeout(Exception):
+    """status=timeout. NOT an error. Raise maxTime or shrink the problem."""
+
+
+def build_problem(jobs: list[dict], depot: dict, vehicle_count: int) -> dict:
+    """
+    A problem has two halves: `plan` (the jobs) and `fleet` (the vehicles).
+
+    CRITICAL: fleet.types[].profile is a STRING REFERENCE into
+    fleet.profiles[].name. It is NOT a transport mode.
+    Writing "profile": "truck" with no profile NAMED truck fails confusingly.
+    """
+    return {
+        "plan": {
+            "jobs": [
+                {
+                    "id": j["id"],
+                    "tasks": {
+                        "deliveries": [{
+                            "places": [{
+                                "location": {"lat": j["lat"], "lng": j["lng"]},
+                                # Appointment window. A constraint, not a preference.
+                                "times": [[j["window_start"], j["window_end"]]],
+                                "duration": j["service_time_s"],
+                            }],
+                            "demand": [j["demand"]],
+                        }]
+                    },
+                }
+                for j in jobs
+            ]
+        },
+        "fleet": {
+            "types": [{
+                "id": "van",
+                "profile": "van_profile",          # ← reference, see below
+                "costs": {
+                    # This is where you encode BUSINESS POLICY.
+                    # High `fixed` discourages using an extra vehicle.
+                    # Leaving these at doc defaults is why the solver
+                    # uses every vehicle you gave it.
+                    "distance": 0.0002,
+                    "time": 0.005,
+                    "fixed": 22,
+                },
+                "shifts": [{
+                    "start": {"time": depot["shift_start"],
+                              "location": {"lat": depot["lat"], "lng": depot["lng"]}},
+                    "end":   {"time": depot["shift_end"],
+                              "location": {"lat": depot["lat"], "lng": depot["lng"]}},
+                }],
+                "limits": {"maxDistance": 300000, "shiftTime": 28800},
+                "capacity": [100],
+                "amount": vehicle_count,
+            }],
+            "profiles": [{
+                "name": "van_profile",             # ← the target of the reference
+                "type": "car",                     # the actual transport mode
+                "departureTime": depot["shift_start"],
+            }],
+        },
+        "configuration": {
+            "termination": {
+                # HERE's example sets maxTime: 2. On a 60-stop problem that
+                # produces a legal solution a dispatcher will reject.
+                # Find your knee empirically.
+                "maxTime": 60,
+                "stagnationTime": 20,
+            }
+        },
+    }
+
+
+def submit_async(problem: dict) -> tuple[str, str]:
+    """POST /v3/problems/async → (statusId, href). Persist BOTH before polling."""
+    resp = requests.post(
+        f"{BASE}/problems/async",
+        params={"apikey": API_KEY},
+        json=problem,
+        timeout=30,
+    )
+    if resp.status_code == 403:
+        raise EntitlementError("Tour Planning not entitled")
+    resp.raise_for_status()
+    data = resp.json()
+    # Use the href HERE returns. Do not construct it.
+    return data["statusId"], data["href"]
+
+
+def poll(href: str, max_wait_s: int = 900) -> str:
+    """Poll while pending/inProgress. Returns the solution href on success."""
+    backoff, waited = 3.0, 0.0
+    while waited < max_wait_s:
+        resp = requests.get(href, params={"apikey": API_KEY}, timeout=15)
+        resp.raise_for_status()
+        body = resp.json()
+        status = body["status"]
+
+        if status == "success":
+            return body["resource"]["href"]
+        if status == "timeout":
+            raise SolveTimeout("Solver did not converge — raise maxTime")
+        if status == "failure":
+            raise RuntimeError(f"Solve failed: {body}")
+
+        time.sleep(backoff)
+        waited += backoff
+        backoff = min(backoff * 1.4, 30.0)
+
+    raise TimeoutError("Polling exceeded budget")
+
+
+def fetch_solution(solution_href: str) -> dict:
+    resp = requests.get(solution_href, params={"apikey": API_KEY}, timeout=60)
+    resp.raise_for_status()
+    return resp.json()
+
+
+if __name__ == "__main__":
+    problem = build_problem(jobs=[...], depot={...}, vehicle_count=12)
+    status_id, href = submit_async(problem)
+    # PERSIST status_id AND href NOW. A worker restart must resume, not resubmit.
+
+    solution = fetch_solution(poll(href))
+
+    # Unassigned jobs are a FIRST-CLASS OUTCOME, not an error.
+    # Capacity, windows, or shift time made them unservable.
+    # Surface them to a dispatcher BEFORE the day starts.
+    unassigned = solution.get("unassigned", [])
+    if unassigned:
+        for u in unassigned:
+            print(f"UNASSIGNED {u['jobId']}: {u.get('reasons')}")
+
+    for tour in solution.get("tours", []):
+        stops = [s["activities"][0]["jobId"]
+                 for s in tour["stops"] if s.get("activities")]
+        print(f"{tour['vehicleId']}: {len(stops)} stops")
+```
+
+```bash cURL
+# Synchronous — for small problems only.
+curl -X POST 'https://tourplanning.hereapi.com/v3/problems' \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer ${HERE_TOKEN}" \
+  -d @problem.json
+
+# Asynchronous — what you want at scale.
+curl -X POST 'https://tourplanning.hereapi.com/v3/problems/async' \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer ${HERE_TOKEN}" \
+  -d @problem.json
+# → { "statusId": "...", "href": "https://tourplanning.hereapi.com/v3/status/..." }
+
+# Poll the returned href. Do NOT construct it.
+curl "https://tourplanning.hereapi.com/v3/status/${STATUS_ID}?apikey=${HERE_API_KEY}"
+# → { "status": "success", "resource": { "resourceId": "...", "href": ".../solution" } }
+
+# Retrieve
+curl "https://tourplanning.hereapi.com/v3/problems/${PROBLEM_ID}/solution?apikey=${HERE_API_KEY}"
+```
+</CodeGroup>
+
+<Info>
+**Both auth methods work.** Drop the `Authorization: Bearer` header and append `?apikey=<KEY>` to the URL. This applies to all Tour Planning endpoints.
+</Info>
+
+## The `profile` reference
+
+This trips up nearly every first integration.
+
+```json
+{
+  "fleet": {
+    "types":    [{ "id": "van", "profile": "van_profile", ... }],
+    "profiles": [{ "name": "van_profile", "type": "car", ... }]
+  }
+}
+```
+
+<Warning>
+`fleet.types[].profile` is a **string key** into `fleet.profiles[].name`. It is not a transport mode.
+
+`"profile": "truck"` with no profile *named* `truck` produces a confusing failure. The transport mode lives in `profiles[].type`.
+</Warning>
+
+## The async lifecycle
+POST /v3/problems/async
+→ { statusId, href }              ← persist BOTH, nowGET  {href}                          ← poll. Use the returned href.
+→ { status: "pending" | "inProgress" }
+→ { status: "success", resource: { href } }
+→ { status: "timeout" }            ← tuning signal, not an error
+→ { status: "failure" }GET  {resource.href}                 ← the solution
+**`timeout` means the solver did not converge within `maxTime`.** Raise it, or reduce problem size. It is not a bug.
+
+## Unassigned jobs
+
+```json
+{
+  "tours": [...],
+  "unassigned": [
+    { "jobId": "job_47", "reasons": [{ "code": "CAPACITY_CONSTRAINT", "description": "..." }] }
+  ]
+}
+```
+
+<Warning>
+The solver will drop jobs that capacity, time windows, or shift time make unservable. **Your integration must handle a solution that does not serve every stop.**
+
+A dispatcher UI that silently omits them is worse than useless. Surface them, with reasons, before the shift begins — not at 4pm when a customer calls.
+</Warning>
+
+## Common mistakes
+
+**Approximating this with N routing calls.** Slower, more expensive, worse routes.
+
+**Setting `profile` to a transport mode.** It is a reference into `fleet.profiles`.
+
+**Leaving `maxTime: 2` from the documentation example.** Legal solution, unusable sequence.
+
+**Treating `timeout` as a failure.** It means "raise `maxTime`."
+
+**Ignoring `unassigned`.** The solver told you.
+
+**Blocking an HTTP request on a synchronous solve.** Use `/async`.
+
+**Constructing the status or solution URL.** Use the returned `href`.
+
+**Losing `statusId` on restart.** Resubmission bills again and returns a *different* sequence, confusing everyone downstream.
+
+**Leaving `costs` at example values.** `fixed` is how you tell the solver whether adding a vehicle is cheap or expensive. That is a business decision.
+
+**Optimizing a truck fleet on car profiles.** Infeasible sequences, confidently returned.
+
+**Re-solving on every inbound order.** Route churn. Drivers stop trusting the app.
+
+## Production considerations
+
+**Solve on a cadence, not on every event.** Nightly. Locked schedule. Exception-driven replanning only. A stable, 90%-optimal schedule outperforms a perfect one nobody follows.
+
+**Persist `statusId` before the first poll.** The solve runs on HERE's side regardless.
+
+**Hash the problem.** Unchanged jobs, fleet, and constraints → reuse the solution.
+
+**Mid-day replanning is a new problem.** Current vehicle location becomes the shift start; completed jobs are removed. Fresh submission, not an incremental update.
+
+**Service time estimates are your accuracy ceiling.** Instrument actual versus estimated per job type. This improves schedules more than any solver parameter.
+
+**Tune `maxTime` and `stagnationTime` against real problem size.** Measure the marginal improvement. Find the knee.
+
+**Truck fleets need truck profiles**, with the same vehicle constraints as [Truck Route](/examples/truck-route).
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Tour Planning" href="/guides/tour-planning">
+    VRP variants, costs, priorities, reloads.
+  </Card>
+  <Card title="Field Service" href="/use-cases/field-service">
+    Skills, appointment windows, and why re-solving destroys trust.
+  </Card>
+  <Card title="Last-Mile Delivery" href="/use-cases/last-mile-delivery">
+    Where service time dominates travel time.
+  </Card>
+  <Card title="Distance Matrix" href="/examples/distance-matrix">
+    The cost table underneath — and the interface to your own solver.
+  </Card>
+</CardGroup>
+
+## HERE documentation
+
+- [Tour Planning introduction](https://docs.here.com/tour-planning/docs/introduction-tour-planning)
+- [Quick start](https://docs.here.com/tour-planning/docs/quick-start)
+- [Developer guide](https://www.developer.here.com/documentation/tour-planning/3.6/dev_guide/index.html)
+
+---
+
+Need production HERE API keys or implementation support?
+
+Placematic is an official HERE Technologies reseller and implementation partner. [Talk to us](https://placematic.com/contact/).

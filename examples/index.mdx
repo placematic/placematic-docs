@@ -1,0 +1,114 @@
+---
+title: "Examples"
+description: "Copy-paste examples for HERE Location Services. Production quality, verified endpoints, no toy code."
+---
+
+# Examples
+
+Copy an example. Understand it in five minutes. Adapt it to production.
+
+Every code block here calls a **verified official HERE endpoint** with parameters checked against HERE's current specification. Where we could not verify something, we omitted the example rather than inventing it.
+
+## How to use this section
+
+**These pages explain the code, not the concept.** Why truck routing needs explicit dimensions belongs in [Truck Routing](/guides/truck-routing). How to send the request belongs here.
+
+**Parameter reference belongs to HERE.** We link to it. We do not reproduce it, because it changes and a stale copy is worse than no copy.
+
+**Nothing here is a starter template.** Every example includes timeouts, error handling that distinguishes `403` from `429`, and the validation that prevents a route no vehicle can drive. Toy code that omits these teaches the wrong lesson at the moment someone copies it.
+
+<Warning>
+Two things every example assumes, and you should verify before running any of them:
+
+**Entitlement.** A key valid for geocoding may return `403` on tour planning. That is a licensing boundary, not a bug. See [Getting a HERE API Key](/start-here/getting-a-here-api-key).
+
+**Units.** HERE's `height` is centimetres. `grossWeight` is kilograms. Pass `4.1` for a 4.1-metre vehicle and you have declared a four-centimetre truck. It will route under every bridge in North America and return `200`.
+</Warning>
+
+## Setup
+
+Every example reads the key from the environment. Never hardcode it, never put it in a query string in production code — URLs are logged by proxies, load balancers, and CDNs.
+
+```bash
+export HERE_API_KEY="your-key-here"
+```
+
+<Info>
+HERE's REST APIs accept the API key as an `apiKey` query parameter, and most also accept an OAuth 2.0 Bearer token. The examples use `apiKey` because it is what HERE's own specification documents for these endpoints.
+
+For production, consider proxying through your own backend so the key is never exposed and you can enforce per-tenant quota. See [Multi-Tenant Location Platform](/architecture/multi-tenant-location-platform).
+</Info>
+
+## Error handling, once
+
+Every example handles these the same way. We will not repeat the explanation on each page.
+
+| Status | Meaning | Retry? |
+|---|---|---|
+| `401` | Key missing, malformed, or revoked | No |
+| `403` | Key valid, **entitlement missing** | **Never** |
+| `429` | Rate limit exceeded | Yes, exponential backoff with jitter |
+| `400` | Malformed request | No — fix the parameters |
+| `5xx` | Upstream failure | Yes, backoff + circuit breaker |
+| `200` + empty `routes` | **No path exists** | **No** — this may be correct |
+
+<Warning>
+`200` with `"routes": []` and a `notice` containing `routeCalculationFailed` is a valid HERE response. Checking `resp.ok` swallows it.
+
+For truck and hazmat routing, "no legal route" is a real and correct outcome. A system that retries with relaxed constraints has just produced an illegal route.
+</Warning>
+
+Retrying `403` is patient, well-engineered, and permanently futile. It generates support tickets.
+
+## The examples
+
+<CardGroup cols={2}>
+  <Card title="Geocode an address" href="/examples/geocode-address">
+    Address → coordinates, with confidence scoring and the access point.
+  </Card>
+  <Card title="Reverse geocode" href="/examples/reverse-geocode">
+    Coordinates → address. Single and batch, with the telematics pattern.
+  </Card>
+  <Card title="Autocomplete an address" href="/examples/autocomplete-address">
+    Debounced type-ahead. The one that bills per keystroke if you get it wrong.
+  </Card>
+  <Card title="Search nearby POIs" href="/examples/search-poi">
+    `/discover` vs `/browse` — relevance ranking vs distance ranking.
+  </Card>
+  <Card title="Calculate a car route" href="/examples/car-route">
+    The baseline. `departureTime`, `return` fields, and empty-routes handling.
+  </Card>
+  <Card title="Calculate a truck route" href="/examples/truck-route">
+    Constraints, units, and CI assertions against trap geometry.
+  </Card>
+  <Card title="Distance matrix" href="/examples/distance-matrix">
+    Async job lifecycle, and the flat array that transposes silently.
+  </Card>
+  <Card title="Batch geocoding" href="/examples/batch-geocoding">
+    The job API. `204` is not an error.
+  </Card>
+</CardGroup>
+
+More examples follow: EV routing, isolines, route matching, tour planning, traffic, map rendering, and two end-to-end recipes.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Guides" href="/guides">
+    What the APIs do and when to use them.
+  </Card>
+  <Card title="Architecture" href="/architecture">
+    Cost, caching, and the decisions that matter more than the API call.
+  </Card>
+</CardGroup>
+
+## HERE documentation
+
+- [HERE Technologies documentation](https://www.here.com/docs)
+- [Identity and Access Management](https://www.here.com/docs)
+
+---
+
+Need production HERE API keys or implementation support?
+
+Placematic is an official HERE Technologies reseller and implementation partner. [Talk to us](https://placematic.com/contact/).

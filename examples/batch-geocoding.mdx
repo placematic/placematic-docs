@@ -1,0 +1,338 @@
+---
+title: "Batch Geocoding"
+description: "Four million addresses through HERE Batch API v7 — the job lifecycle, serviceHrn, idempotency across worker restarts, and the status codes that are not errors."
+---
+
+# Batch Geocoding
+
+**Problem:** I have four million addresses. Nothing is waiting for the result.
+
+<Warning>
+**Deduplicate first.** Four million rows containing nine hundred thousand distinct addresses bills for four million.
+
+This is one `SELECT DISTINCT` on a normalized column, it is free, and it is skipped constantly.
+</Warning>
+
+## Prerequisites
+
+- A HERE API key with Batch entitlement
+- `export HERE_API_KEY="..."`
+
+<Info>
+**Batch API v7 is at `batch.search.hereapi.com/v7/batch/jobs`.** It is driven by a `serviceHrn` parameter that selects which service processes the job.
+
+If you are reading a tutorial using `batch.geocoder.ls.hereapi.com/6.2/jobs` with `action=run` and `outcols=`, that is the **legacy Batch Geocoder API 6.2**. Different host, different parameters, different response format (XML). Prefer v7 for new work.
+</Info>
+
+## The code
+
+<CodeGroup>
+```python Python
+import os
+import time
+import requests
+
+BASE = "https://batch.search.hereapi.com/v7/batch/jobs"
+API_KEY = os.environ["HERE_API_KEY"]
+
+# Selects the service that processes the job.
+SERVICE_GEOCODE = "hrn:here:service::olp-here:search-geocode-7"
+
+
+class EntitlementError(Exception): ...
+
+
+def build_input(records: list[tuple[str, str, str]]) -> str:
+    """
+    Pipe-delimited, with a header row.
+    records: [(recId, query, countryCode), ...]
+
+    Deduplicate and normalize BEFORE you get here.
+    """
+    lines = ["recId|q|country"]
+    lines += [f"{rid}|{q}|{c}" for rid, q, c in records]
+    return "\n".join(lines)
+
+
+def submit_job(payload: str, start_immediately: bool = True) -> dict:
+    """
+    POST the input as the request body. Returns {id, status, href}.
+
+    PERSIST THE JOB ID BEFORE POLLING. If your worker dies between here and
+    the first poll, the job is running on HERE's side regardless.
+    Resubmitting a 4M-record job bills 4M records again.
+    """
+    params = {
+        "serviceHrn": SERVICE_GEOCODE,
+        "inputDelimiter": "|",
+        "outputDelimiter": "|",
+        "outputColumns": "|".join([
+            "position", "title", "id",
+            "addressLabel", "addressHouseNumber", "addressStreet",
+            "addressCity", "addressPostalCode", "addressCountryCode",
+        ]),
+        "outputType": "csv",
+        "startJob": str(start_immediately).lower(),
+        "apiKey": API_KEY,
+    }
+
+    resp = requests.post(
+        BASE, params=params,
+        data=payload.encode("utf-8"),
+        headers={"Content-Type": "text/plain", "Accept": "application/json"},
+        timeout=120,
+    )
+    if resp.status_code == 403:
+        raise EntitlementError("Batch not entitled")
+    if resp.status_code == 429:
+        # Concurrent job limit. QUEUE. Do not hammer.
+        raise RuntimeError("Concurrency limit — queue this job")
+    resp.raise_for_status()
+
+    return resp.json()   # {"id": ..., "status": "submitted"|"queued", "href": ...}
+
+
+def poll_status(job_id: str, max_wait_s: int = 7200) -> str:
+    """Poll with backoff. Returns terminal status."""
+    backoff, waited = 5.0, 0.0
+    while waited < max_wait_s:
+        resp = requests.get(f"{BASE}/{job_id}",
+                            params={"apiKey": API_KEY}, timeout=30)
+        resp.raise_for_status()
+        status = resp.json()["status"]
+
+        if status in ("success", "failed", "cancelled"):
+            return status
+
+        time.sleep(backoff)
+        waited += backoff
+        backoff = min(backoff * 1.4, 60.0)
+
+    raise TimeoutError(f"Job {job_id} not terminal after {max_wait_s}s")
+
+
+def fetch_errors(job_id: str) -> str | None:
+    """
+    204 means ZERO ERRORS. It is not a failure.
+
+    Code that treats any non-200 as failure will log a perfectly successful
+    job as broken, every night, until someone reads the spec.
+    """
+    resp = requests.get(f"{BASE}/{job_id}/errors",
+                        params={"apiKey": API_KEY}, timeout=60)
+    if resp.status_code == 204:
+        return None       # Celebrate.
+    resp.raise_for_status()
+    return resp.text
+
+
+def fetch_results(job_id: str, out_path: str) -> None:
+    """
+    404 means the job has not succeeded yet. Poll status first.
+    Stream — 4M records do not fit in memory.
+    """
+    resp = requests.get(f"{BASE}/{job_id}/result",
+                        params={"apiKey": API_KEY}, stream=True, timeout=300)
+    if resp.status_code == 404:
+        raise RuntimeError("Results not ready — job has not succeeded")
+    resp.raise_for_status()
+
+    with open(out_path, "wb") as f:
+        for chunk in resp.iter_content(chunk_size=1 << 20):
+            f.write(chunk)
+
+
+def delete_job(job_id: str) -> None:
+    """Step six. Jobs accumulate."""
+    requests.delete(f"{BASE}/{job_id}", params={"apiKey": API_KEY}, timeout=30)
+
+
+if __name__ == "__main__":
+    records = [
+        ("0001", "Invalidenstraße 116 10115 Berlin", "DEU"),
+        ("0002", "425 W Randolph St Chicago IL 60606", "USA"),
+        ("0003", "One Main Street Cambridge MA 02142", "USA"),
+    ]
+
+    job = submit_job(build_input(records))
+    job_id = job["id"]
+    # ---- PERSIST job_id HERE, before the next line. ----
+    print(f"Job {job_id} — persist this")
+
+    status = poll_status(job_id)
+    if status != "success":
+        raise SystemExit(f"Job ended: {status}")
+
+    errors = fetch_errors(job_id)
+    if errors:
+        print("Partial failure — route these to the exception queue:")
+        print(errors)   # Do NOT discard 2.9M good results over 100k bad ones
+
+    fetch_results(job_id, "geocoded.csv")
+    delete_job(job_id)
+```
+
+```bash cURL
+# 1. Create + start in one call (startJob=true)
+resp=$(curl -sX POST \
+  "https://batch.search.hereapi.com/v7/batch/jobs?\
+serviceHrn=hrn:here:service::olp-here:search-geocode-7&\
+inputDelimiter=|&outputDelimiter=|&\
+outputColumns=position|title|id&\
+outputType=csv&startJob=true&apiKey=${HERE_API_KEY}" \
+  -H 'Accept: application/json' \
+  -H 'Content-Type: text/plain' \
+  --data 'recId|q|country
+0001|Invalidenstraße 116 10115 Berlin|DEU
+0002|425 W Randolph St Chicago IL 60606|USA')
+
+jobId=$(echo "$resp" | jq -r '.id')
+echo "PERSIST THIS: $jobId"
+
+# 2. Poll status until "success"
+curl -s "https://batch.search.hereapi.com/v7/batch/jobs/${jobId}?apiKey=${HERE_API_KEY}" | jq
+
+# 3. Errors. HTTP 204 = zero errors. Not a failure.
+curl -sw '%{http_code}' \
+  "https://batch.search.hereapi.com/v7/batch/jobs/${jobId}/errors?apiKey=${HERE_API_KEY}"
+
+# 4. Results. 404 until the job succeeds.
+curl -s -o geocoded.csv \
+  "https://batch.search.hereapi.com/v7/batch/jobs/${jobId}/result?apiKey=${HERE_API_KEY}"
+
+# 5. Clean up
+curl -sX DELETE \
+  "https://batch.search.hereapi.com/v7/batch/jobs/${jobId}?apiKey=${HERE_API_KEY}"
+```
+</CodeGroup>
+
+## Response walkthrough
+
+Submission:
+
+```json
+{
+  "id": "<jobId>",
+  "serviceHrn": "hrn:here:service::olp-here:search-geocode-7",
+  "billingTags": [],
+  "status": "submitted",
+  "href": "https://batch.search.hereapi.com/v7/batch/jobs/<jobId>"
+}
+```
+
+**`status`** progresses `submitted` → `queued` → `running` → `success` | `failed` | `cancelled`.
+
+**`billingTags`** let you attribute cost per tenant or per customer. Set them if you run a multi-tenant platform. You cannot price a feature whose cost you cannot attribute.
+
+## The three status codes that are not errors
+
+| Response | Meaning | Correct action |
+|---|---|---|
+| `429` on job start | Concurrency limit reached | **Queue.** Not a fault |
+| `204` on `/errors` | **Zero errors** | Celebrate. Do not retry |
+| `404` on `/result` | Job has not succeeded yet | Poll status first |
+
+<Warning>
+Code that treats any non-`200` as failure will log a perfectly successful job as broken, every night, until someone reads the specification.
+</Warning>
+
+## Idempotency
+
+The pipeline must survive a worker restart without resubmitting.
+chunk created  →  Pending
+POST /jobs     →  Submitted    ← persist job_id HERE, before polling
+        │
+          ├─ crash → resume: job_id exists, DO NOT resubmit
+    ▼
+GET /jobs/{id} →  Running (poll with backoff)
+▼
+         Succeeded → fetch errors → fetch results → DELETE
+
+**Persist the chunk-to-job mapping.** On resume, retrieve results for jobs already submitted; submit only chunks with no job.
+
+**Make chunking deterministic.** Stable ordering plus fixed size means a restarted process reconstructs the same chunks. A random shuffle does not.
+
+## Common mistakes
+
+**Not deduplicating.** Paying for repetition.
+
+**Not normalizing before deduplicating.** Catches only exact string matches.
+
+**Treating this as a bulk endpoint.** It is a job lifecycle.
+
+**Losing the job ID on restart.** Full rebill.
+
+**Retrying `204`.** Zero errors.
+
+**Aggressively retrying `404`.** The job has not finished.
+
+**Hammering after `429`.** Concurrency limit. Queue.
+
+**Assuming all-or-nothing.** Read `/errors`. Handle partial success.
+
+**Never deleting jobs.** They accumulate.
+
+**Loading four million results into memory.** Stream.
+
+**Not writing results into a durable cache.** You will do this again next quarter, and pay again.
+
+**Onboarding jobs starving nightly enrichment.** Batch concurrency is per-contract.
+
+## Production considerations
+
+**Order of operations, before any API call:**
+
+1. Normalize (trim, case-fold, expand abbreviations)
+2. Deduplicate
+3. `WHERE geocoded_at IS NULL`
+4. Count what remains — and report *that* number before you report a timeline
+
+<Tip>
+The remaining count is usually a fifth of what you were handed. It changes the conversation with whoever asked.
+</Tip>
+
+**Persist the job ID before the first poll.**
+
+**Poll with exponential backoff.** A forty-minute job does not need checking every two seconds.
+
+**Queue against the concurrency limit.** Read [Batch API limits and performance](https://www.here.com/docs/bundle/batch-api-v7-developer-guide/page/topics/limits-and-performance.html) before designing the pipeline; the limits determine your parallelism, not the reverse.
+
+**Use gzip on large inputs.** Supported, and it materially reduces upload time.
+
+**Handle partial success.** Successes merge into the cache; failures go to an exception queue with an owner.
+
+**Persist the confidence score.** A record that "succeeded" with a city-centroid fallback is a different outcome from a rooftop match.
+
+**Webhooks exist in beta.** If your pipeline's correctness depends on a webhook arriving, build the polling fallback anyway.
+
+**Write results into a durable cache.** The point of batch geocoding is that you never geocode that address again.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Batch Geocoding" href="/guides/batch-geocoding">
+    The lifecycle, the limits, and the status codes in detail.
+  </Card>
+  <Card title="High-Volume Geocoding" href="/architecture/high-volume-geocoding">
+    Queues, retries, monitoring, and what to alert on.
+  </Card>
+  <Card title="Caching Geocoding Results" href="/architecture/caching-geocoding-results">
+    Where the output of this pipeline must land.
+  </Card>
+  <Card title="Geocode an Address" href="/examples/geocode-address">
+    The real-time path, for the trickle of new addresses.
+  </Card>
+</CardGroup>
+
+## HERE documentation
+
+- [Use geocoding with HERE Batch API v7](https://docs.here.com/geocoding-and-search/docs/geocoding)
+- [Batch API v7 quick start](https://www.here.com/docs/bundle/batch-api-v7-developer-guide/page/topics/batch-api-quick-start.html)
+- [Job lifecycle](https://www.here.com/docs/bundle/batch-api-v7-developer-guide/page/topics/job-lifecycle.html)
+- [Limits and performance](https://www.here.com/docs/bundle/batch-api-v7-developer-guide/page/topics/limits-and-performance.html)
+
+---
+
+Need production HERE API keys or implementation support?
+
+Placematic is an official HERE Technologies reseller and implementation partner. [Talk to us](https://placematic.com/contact/).

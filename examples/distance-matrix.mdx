@@ -1,0 +1,302 @@
+---
+title: "Distance Matrix"
+description: "Matrix Routing v8 — the async job lifecycle, mode-specific size ceilings, and the flat array that transposes silently."
+---
+
+# Distance Matrix
+
+**Problem:** I need travel times between many origins and many destinations. Not a loop of routing calls.
+
+<Warning>
+If you are calling the Routing API in a loop to build a table of travel times, this page will pay for itself. A 20×500 problem is 10,000 routing calls, or one matrix request.
+</Warning>
+
+## Prerequisites
+
+- A HERE API key with Matrix Routing entitlement
+- `export HERE_API_KEY="..."`
+
+## Size ceilings depend on mode
+
+<Warning>
+There is no single "HERE matrix size limit." Verified against the [Matrix Routing v8 OpenAPI specification](https://matrix.router.hereapi.com/v8/openapi), v8.47.0:
+
+| Mode | Sync | Async | Live traffic + custom options |
+|---|---|---|---|
+| **Flexible** (`world`) | 15×100 or 100×1 | 15×100 or 100×1 | Yes |
+| **Region** (`circle`, `boundingBox`, `polygon`, `autoCircle`) | 500×500 | 10,000×10,000 | Yes |
+| **Profile** (`world` + `profile`) | 500×500, 1×2000, 2000×1 | 10,000×10,000 | **No** |
+
+**A truck-constrained matrix with live traffic runs in Flexible mode and caps at 15 × 100.** Read the spec before architecting.
+</Warning>
+
+## The code — async, which is what you want at scale
+
+<CodeGroup>
+```python Python
+import os
+import time
+import requests
+
+BASE = "https://matrix.router.hereapi.com/v8"
+API_KEY = os.environ["HERE_API_KEY"]
+
+
+class EntitlementError(Exception): ...
+
+
+def submit_matrix(origins: list[dict], destinations: list[dict],
+                  region_center: dict, radius_m: int = 200_000) -> tuple[str, str]:
+    """
+    Submit an async matrix job.
+
+    Returns (matrixId, statusUrl).
+    PERSIST BOTH BEFORE POLLING. If your worker restarts mid-poll, the job is
+    still running on HERE's side. Resubmitting bills again.
+    """
+    body = {
+        "origins": origins,            # [{"lat": .., "lng": ..}, ...]
+        "destinations": destinations,
+        "regionDefinition": {          # Region mode: max 400km diameter
+            "type": "circle",
+            "center": region_center,
+            "radius": radius_m,
+        },
+        "matrixAttributes": ["travelTimes", "distances"],
+    }
+
+    resp = requests.post(f"{BASE}/matrix", params={"apiKey": API_KEY},
+                         json=body, timeout=30)
+    if resp.status_code == 403:
+        raise EntitlementError("Matrix Routing not entitled")
+    resp.raise_for_status()
+
+    data = resp.json()
+    # Use the statusUrl HERE returns. Do NOT construct it — global load
+    # balancing means a self-built URL may resolve to a different region.
+    return data["matrixId"], data["statusUrl"]
+
+
+def poll_until_done(status_url: str, max_wait_s: int = 600) -> str:
+    """Poll with backoff. Returns the result URL on success."""
+    backoff, waited = 2.0, 0.0
+    while waited < max_wait_s:
+        resp = requests.get(status_url, params={"apiKey": API_KEY},
+                            timeout=15, allow_redirects=False)
+        if resp.status_code in (301, 302, 303):
+            return resp.headers["Location"]
+
+        resp.raise_for_status()
+        status = resp.json().get("status")
+        if status == "completed":
+            return resp.json()["resultUrl"]
+        if status == "failed":
+            raise RuntimeError(f"Matrix failed: {resp.json()}")
+
+        time.sleep(backoff)
+        waited += backoff
+        backoff = min(backoff * 1.5, 30.0)
+
+    raise TimeoutError(f"Matrix not complete after {max_wait_s}s")
+
+
+def fetch_result(result_url: str) -> dict:
+    resp = requests.get(result_url, params={"apiKey": API_KEY}, timeout=60)
+    resp.raise_for_status()
+    return resp.json()
+
+
+# ---------------------------------------------------------------------------
+# THE INDEXING HELPER. Write this once. Unit-test it. Never index inline.
+# ---------------------------------------------------------------------------
+def cell(matrix: dict, origin_idx: int, dest_idx: int, attr: str = "travelTimes"):
+    """
+    Result arrays are FLAT and ROW-MAJOR.
+
+    A 2x2 returns travelTimes: [73, 1231, 983, 400]
+      [0][0]=73  [0][1]=1231
+      [1][0]=983 [1][1]=400
+
+    Index it wrong and you get a silently transposed matrix. Every travel time
+    is plausible. Every assignment is wrong. Nothing throws.
+    """
+    n_dest = matrix["numDestinations"]
+    return matrix[attr][origin_idx * n_dest + dest_idx]
+
+
+def cell_error(matrix: dict, origin_idx: int, dest_idx: int) -> int | None:
+    """
+    Per-cell error codes. Read them.
+      1 = graph disconnected   2 = waypoint matching failed
+      3 = route found but VIOLATES A RESTRICTION
+      4 = waypoint outside region
+    """
+    codes = matrix.get("errorCodes")
+    if not codes:
+        return None
+    n_dest = matrix["numDestinations"]
+    code = codes[origin_idx * n_dest + dest_idx]
+    return code or None
+
+
+if __name__ == "__main__":
+    depots = [{"lat": 41.8845, "lng": -87.6386},
+              {"lat": 41.5250, "lng": -88.0817}]
+    stops = [{"lat": 41.9028, "lng": -87.6317},
+             {"lat": 41.7508, "lng": -87.7713}]
+
+    matrix_id, status_url = submit_matrix(depots, stops,
+                                          region_center={"lat": 41.8, "lng": -87.8})
+    # PERSIST matrix_id AND status_url HERE, before polling.
+    result_url = poll_until_done(status_url)
+    m = fetch_result(result_url)["matrix"]
+
+    for i in range(m["numOrigins"]):
+        for j in range(m["numDestinations"]):
+            err = cell_error(m, i, j)
+            if err == 3:
+                print(f"depot {i} → stop {j}: route VIOLATES a restriction")
+            elif err:
+                print(f"depot {i} → stop {j}: error {err}")
+            else:
+                print(f"depot {i} → stop {j}: {cell(m, i, j)}s")
+```
+
+```javascript Node.js
+const BASE = "https://matrix.router.hereapi.com/v8";
+const API_KEY = process.env.HERE_API_KEY;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+export async function submitMatrix(origins, destinations, regionCenter, radiusM = 200_000) {
+  const resp = await fetch(`${BASE}/matrix?apiKey=${API_KEY}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      origins,
+      destinations,
+      regionDefinition: { type: "circle", center: regionCenter, radius: radiusM },
+      matrixAttributes: ["travelTimes", "distances"],
+    }),
+  });
+
+  if (resp.status === 403) throw new Error("Matrix Routing not entitled");
+  if (!resp.ok) throw new Error(`HERE returned ${resp.status}`);
+
+  const { matrixId, statusUrl } = await resp.json();
+  // Persist BOTH before polling.
+  return { matrixId, statusUrl };
+}
+
+export async function pollUntilDone(statusUrl, maxWaitMs = 600_000) {
+  let backoff = 2000, waited = 0;
+  while (waited < maxWaitMs) {
+    const resp = await fetch(`${statusUrl}?apiKey=${API_KEY}`, { redirect: "manual" });
+    if ([301, 302, 303].includes(resp.status)) return resp.headers.get("location");
+
+    const body = await resp.json();
+    if (body.status === "completed") return body.resultUrl;
+    if (body.status === "failed") throw new Error(JSON.stringify(body));
+
+    await sleep(backoff);
+    waited += backoff;
+    backoff = Math.min(backoff * 1.5, 30_000);
+  }
+  throw new Error("Matrix timed out");
+}
+
+/** Flat, row-major. Write once, test once, never inline. */
+export function cell(matrix, originIdx, destIdx, attr = "travelTimes") {
+  return matrix[attr][originIdx * matrix.numDestinations + destIdx];
+}
+```
+</CodeGroup>
+
+## Response walkthrough
+
+```json
+{
+  "matrixId": "bc79a808-dbac-4e49-88f2-27ec66a473ef",
+  "matrix": {
+    "numOrigins": 2,
+    "numDestinations": 2,
+    "travelTimes": [73, 1231, 983, 400],
+    "distances": [10, 109, 10, 30]
+  },
+  "regionDefinition": { "type": "circle", "center": {...}, "radius": 10000 }
+}
+```
+
+<Warning>
+**`travelTimes` is flat and row-major.** `[73, 1231, 983, 400]` for a 2×2 means:
+dest0  dest1
+origin0   73    1231
+origin1  983     400
+Index as `travelTimes[origin * numDestinations + destination]`.
+
+Transpose it and every value is plausible, every assignment is wrong, and nothing throws. This is why matrix bugs survive code review.
+</Warning>
+
+**`errorCodes`** is a parallel flat array. `3` means a route was found *but it violates a restriction*. Read it.
+
+## Common mistakes
+
+**Looping the Routing API.** The reason this page exists.
+
+**Indexing the flat array as if it were nested.** Silently transposed.
+
+**Constructing the `statusUrl`.** HERE's spec explicitly warns that a self-built URL may resolve to a different region and return `404`. Use the returned one.
+
+**Blocking a request thread on an async job.** Submit, persist, return, poll on a worker.
+
+**Losing the `matrixId` on restart.** Resubmission is a full recharge.
+
+**Architecting against a size ceiling from a comparison table.** Including ours. Read the spec.
+
+**Building a truck matrix in car mode.** Matrix accepts truck parameters. Wrong times, wrong assignments.
+
+**Requesting `consumptions` when nothing reads them.**
+
+**Ignoring `errorCodes`.** A cell with `3` returned a route that breaks a constraint.
+
+## Production considerations
+
+**Persist `matrixId` and `statusUrl` before the first poll.** The job runs on HERE's side whether or not your process remembers it.
+
+**Cache on a hash of the input set.** Depot locations do not move. If origins, destinations, and departure time are unchanged, the matrix is unchanged.
+
+**Write exactly one indexing helper.** Unit-test it against a hand-computed 2×3. Never index the array anywhere else. This is the highest-value five lines in a matrix integration.
+
+**Handle `429` on submission with backoff.** Concurrent job limits exist.
+
+**Pass truck parameters for commercial fleets.** Same `vehicle[...]` fields as [Truck Route](/examples/truck-route).
+
+**Region mode caps at 400 km diameter.** Beyond that you are in Flexible or Profile mode, with different ceilings and different trade-offs.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Matrix Routing" href="/guides/matrix-routing">
+    Modes, region definitions, and the async lifecycle in full.
+  </Card>
+  <Card title="Routing vs Matrix" href="/architecture/choosing-routing-vs-matrix">
+    The loop, why engineers write it, and the decision tree.
+  </Card>
+  <Card title="Fleet Routing" href="/use-cases/fleet-routing">
+    Where the matrix feeds the solver.
+  </Card>
+  <Card title="Cost Optimization Patterns" href="/architecture/cost-optimization-patterns">
+    Pattern 2: choosing the right primitive.
+  </Card>
+</CardGroup>
+
+## HERE documentation
+
+- [Matrix Routing v8 OpenAPI specification](https://matrix.router.hereapi.com/v8/openapi) — authoritative on modes, limits, and error codes
+- [Matrix Routing API v8](https://www.here.com/docs/category/matrix-routing-api-v8)
+
+---
+
+Need production HERE API keys or implementation support?
+
+Placematic is an official HERE Technologies reseller and implementation partner. [Talk to us](https://placematic.com/contact/).

@@ -1,0 +1,239 @@
+---
+title: "Search Nearby POIs"
+description: "Finding places with HERE Geocoding & Search v7 — /discover ranks by relevance, /browse ranks by distance, and that difference is the most common integration bug."
+---
+
+# Search Nearby POIs
+
+**Problem:** Find places near a point — by free text, or by category.
+
+<Info>
+Three endpoints, three different jobs.
+
+| Endpoint | Host | Ranks by | Use for |
+|---|---|---|---|
+| `/v1/discover` | `discover.search.hereapi.com` | **Relevance** | "coffee near Wrigley Field" |
+| `/v1/browse` | `browse.search.hereapi.com` | **Distance** | "pharmacies within 2 km" |
+| `/v1/lookup` | `lookup.search.hereapi.com` | — | Retrieve a known place by HERE ID |
+
+**Choosing wrong produces a store finder whose nearest store is third in the list, or a search box that returns the closest match instead of the best one.** This is the most common POI integration bug.
+</Info>
+
+## Prerequisites
+
+- A HERE API key with Geocoding & Search entitlement
+- `export HERE_API_KEY="..."`
+
+<Warning>
+**For consumer place discovery — business hours, reviews, photos, category depth — Google's data is better than HERE's. Not marginally. Categorically.**
+
+Placematic sells HERE. We would rather you know this before a migration than after.
+
+HERE is the right choice for **truck-relevant POIs** (truck stops, weigh stations, rest areas), for **your own locations** (which belong in your database, not a public index), and when you already license HERE for routing.
+</Warning>
+
+## The code
+
+<CodeGroup>
+```python Python
+import os
+import requests
+
+DISCOVER = "https://discover.search.hereapi.com/v1/discover"
+BROWSE = "https://browse.search.hereapi.com/v1/browse"
+LOOKUP = "https://lookup.search.hereapi.com/v1/lookup"
+API_KEY = os.environ["HERE_API_KEY"]
+
+
+class EntitlementError(Exception): ...
+
+
+def discover(query: str, at: str, limit: int = 10) -> list[dict]:
+    """
+    Free-text place search. Results ranked by RELEVANCE.
+
+    Use for: a user typed something and wants the best match.
+    Do NOT use for: a store finder. The nearest store will not be first.
+    """
+    resp = requests.get(DISCOVER, params={
+        "q": query,
+        "at": at,                # "lat,lng" — search context centre
+        "limit": limit,
+        "apiKey": API_KEY,
+    }, timeout=10)
+
+    if resp.status_code == 403:
+        raise EntitlementError("Discover not entitled")
+    resp.raise_for_status()
+
+    return [
+        {
+            "title": it["title"],
+            "here_id": it["id"],           # ← store this, use /lookup later
+            "position": it["position"],
+            "distance_m": it.get("distance"),
+            "categories": [c["name"] for c in it.get("categories", [])],
+        }
+        for it in resp.json().get("items", [])
+    ]
+
+
+def browse(at: str, categories: str | None = None,
+           radius_m: int = 2000, limit: int = 10) -> list[dict]:
+    """
+    Category-filtered places, ranked by DISTANCE from `at`.
+
+    Use for: "pharmacies within 2 km", ordered nearest-first.
+    """
+    params = {"at": at, "limit": limit, "apiKey": API_KEY}
+    if categories:
+        # HERE category IDs. See the category system reference.
+        params["categories"] = categories
+    if radius_m:
+        params["in"] = f"circle:{at};r={radius_m}"
+
+    resp = requests.get(BROWSE, params=params, timeout=10)
+    if resp.status_code == 403:
+        raise EntitlementError("Browse not entitled")
+    resp.raise_for_status()
+
+    return [
+        {
+            "title": it["title"],
+            "here_id": it["id"],
+            "position": it["position"],
+            "distance_m": it.get("distance"),   # already sorted ascending
+        }
+        for it in resp.json().get("items", [])
+    ]
+
+
+def lookup(here_id: str) -> dict:
+    """
+    Retrieve a known place by HERE ID.
+
+    Re-searching for a place you have already resolved is the POI
+    equivalent of not caching geocoding results.
+    """
+    resp = requests.get(LOOKUP, params={"id": here_id, "apiKey": API_KEY},
+                        timeout=10)
+    resp.raise_for_status()
+    return resp.json()
+
+
+if __name__ == "__main__":
+    # Relevance: user typed something
+    for p in discover("coffee", at="41.9484,-87.6553", limit=5):
+        print(f"{p['title']} ({p['distance_m']}m)")
+
+    # Distance: nearest-first, filtered by category
+    for p in browse(at="41.9484,-87.6553", radius_m=1500, limit=5):
+        print(f"{p['distance_m']}m — {p['title']}")
+```
+
+```bash cURL
+# Relevance-ranked free-text search
+curl -G 'https://discover.search.hereapi.com/v1/discover' \
+  --data-urlencode 'q=restaurant' \
+  --data-urlencode 'at=52.5200,13.4050' \
+  --data-urlencode 'limit=5' \
+  --data-urlencode "apiKey=${HERE_API_KEY}"
+
+# Distance-ranked, category-filtered, within a radius
+curl -G 'https://browse.search.hereapi.com/v1/browse' \
+  --data-urlencode 'at=52.5200,13.4050' \
+  --data-urlencode 'in=circle:52.5200,13.4050;r=2000' \
+  --data-urlencode 'limit=10' \
+  --data-urlencode "apiKey=${HERE_API_KEY}"
+
+# Retrieve a known place — no search, no ambiguity
+curl -G 'https://lookup.search.hereapi.com/v1/lookup' \
+  --data-urlencode 'id=here:pds:place:276u33db-...' \
+  --data-urlencode "apiKey=${HERE_API_KEY}"
+```
+</CodeGroup>
+
+## Response walkthrough
+
+```json
+{
+  "items": [{
+    "title": "Café Einstein",
+    "id": "here:pds:place:276u33db-...",
+    "resultType": "place",
+    "address": { "label": "Unter den Linden 42, 10117 Berlin, Germany" },
+    "position": { "lat": 52.51677, "lng": 13.38913 },
+    "access": [{ "lat": 52.51670, "lng": 13.38920 }],
+    "distance": 214,
+    "categories": [{ "id": "100-1000-0000", "name": "Restaurant", "primary": true }]
+  }]
+}
+```
+
+**`id`** — the HERE ID. Cache it. Use `/lookup` on subsequent access.
+
+**`distance`** — metres from the `at` context centre. On `/browse` the list is already sorted by this. On `/discover` it is not.
+
+**`categories`** — HERE's taxonomy. **It does not map onto Google's.** A migration that assumes a mapping table produces silently wrong filters.
+
+## Common mistakes
+
+**Using `/discover` for a store finder.** Relevance ranking. The nearest store appears third.
+
+**Using `/browse` for a free-text search box.** Distance ranking. The best match appears last.
+
+**Using `/geocode` for place search.** That endpoint resolves addresses.
+
+**Not caching by HERE ID.** Re-searching for a resolved place.
+
+**Assuming category taxonomies map across vendors.**
+
+**Querying a public place index for your own stores.** Your stores are in your database. A public index will silently miss the one that opened last week — map data ships on a release cadence.
+
+**POI search on map pan.** Every drag fires a query.
+
+**Expecting reviews, photos, or reliable hours.**
+
+**Using POI queries for zone containment.** That is `ST_Contains` in your own database. See [Geofencing](/use-cases/geofencing).
+
+## Production considerations
+
+**Cache by HERE ID.** Places move slowly; users search for the same ones repeatedly.
+
+**Debounce user-facing search.** 200–300ms.
+
+**Keep your own locations in your own database.** See [Store Locator](/use-cases/store-locator).
+
+**For truck stop planning, join POIs to the route, not to a circle.** "Truck stops along the remaining route" is the question dispatchers ask; "within 10 km of the driver" is not.
+
+**Map the taxonomy explicitly** if you run both HERE and Google.
+
+**Be explicit about which surfaces stay on Google**, and why, before someone calls a deliberate hybrid a failed migration.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Points of Interest" href="/guides/points-of-interest">
+    Truck POIs, the taxonomy problem, and the honest comparison.
+  </Card>
+  <Card title="HERE Geocoding vs Google Maps" href="/comparisons/here-geocoding-vs-google-maps">
+    Where the place-data gap decides your architecture.
+  </Card>
+  <Card title="Store Locator" href="/use-cases/store-locator">
+    Your stores are not a POI query.
+  </Card>
+  <Card title="Nearest Store Search" href="/examples/nearest-store-search">
+    The correct pattern: PostGIS shortlist, matrix rank.
+  </Card>
+</CardGroup>
+
+## HERE documentation
+
+- [Geocoding & Search v7 introduction](https://docs.here.com/geocoding-and-search/docs/introduction-to-here-geocoding-search-api-v7)
+- [Developer insights and best practices](https://www.here.com/learn/blog/here-geocoding-and-search-api-developer-insights-and-best-practices)
+
+---
+
+Need production HERE API keys or implementation support?
+
+Placematic is an official HERE Technologies reseller and implementation partner. [Talk to us](https://placematic.com/contact/).

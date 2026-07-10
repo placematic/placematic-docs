@@ -157,19 +157,19 @@ For matrices of hazmat-constrained travel times, [Matrix Routing](/guides/matrix
 
 ## Production checklist
 
-[ ] Material classification mapped to HERE's `shippedHazardousGoods` enum, with a documented mapping table
-[ ] Mapping table reviewed by someone qualified in the applicable regulation
-[ ] Routing request validated: hazmat load without a class fails loudly, never defaults
-[ ] Tunnel category supplied where applicable
-[ ] Physical vehicle constraints supplied alongside hazmat class
-[ ] `grossWeight` used, not the deprecated `weightLimit`
-[ ] Empty `routes` array handled as a legitimate outcome, not retried with relaxed constraints
-[ ] No fallback to car routing under any circumstance
-[ ] Cache keys include the full constraint set
-[ ] Constraint set stored on the load; vehicle dimensions on the vehicle
-[ ] Route, constraints, timestamp, and map release version persisted
-[ ] CI assertions against known-prohibited segments in your operating region
-[ ] Driver endorsement verified against load class before dispatch
+- [ ] Material classification mapped to HERE's `shippedHazardousGoods` enum, with a documented mapping table
+- [ ] Mapping table reviewed by someone qualified in the applicable regulation
+- [ ] Routing request validated: hazmat load without a class fails loudly, never defaults
+- [ ] Tunnel category supplied where applicable
+- [ ] Physical vehicle constraints supplied alongside hazmat class
+- [ ] `grossWeight` used, not the deprecated `weightLimit`
+- [ ] Empty `routes` array handled as a legitimate outcome, not retried with relaxed constraints
+- [ ] No fallback to car routing under any circumstance
+- [ ] Cache keys include the full constraint set
+- [ ] Constraint set stored on the load; vehicle dimensions on the vehicle
+- [ ] Route, constraints, timestamp, and map release version persisted
+- [ ] CI assertions against known-prohibited segments in your operating region
+- [ ] Driver endorsement verified against load class before dispatch
 
 ## Alternatives and trade-offs
 

@@ -1,0 +1,272 @@
+---
+title: "Geocode an Address"
+description: "Convert an address to coordinates with HERE Geocoding & Search v7 — including confidence scoring, the routing access point, and structured queries."
+---
+
+# Geocode an Address
+
+**Problem:** I have an address string. I need coordinates, and I need to know whether to trust them.
+
+## Prerequisites
+
+- A HERE API key with Geocoding & Search entitlement
+- `export HERE_API_KEY="..."`
+
+<Info>
+Geocoding & Search v7 uses **per-endpoint hosts**. Forward geocoding is `geocode.search.hereapi.com`, not a shared base URL. This surprises teams building a single HTTP client.
+</Info>
+
+## The code
+
+<CodeGroup>
+```python Python
+import os
+import time
+import requests
+
+HOST = "https://geocode.search.hereapi.com/v1/geocode"
+API_KEY = os.environ["HERE_API_KEY"]
+
+# Below this, treat the result as unverified and route to review.
+# Calibrate against your own ground truth — do not port this number.
+MIN_QUERY_SCORE = 0.90
+
+
+class EntitlementError(Exception):
+    """403 — valid key, missing product entitlement. Never retry."""
+
+
+def geocode(address: str, country: str | None = None, retries: int = 3) -> dict | None:
+    """
+    Forward geocode a free-text address.
+
+    Returns a normalized record, or None if no acceptable match was found.
+    Raises EntitlementError on 403 — retrying will never succeed.
+    """
+    params = {"q": address, "apiKey": API_KEY, "limit": 1}
+    if country:
+        # ISO 3166-1 alpha-3. Narrows results and reduces ambiguity.
+        params["in"] = f"countryCode:{country}"
+
+    backoff = 1.0
+    for attempt in range(retries):
+        resp = requests.get(HOST, params=params, timeout=10)
+
+        if resp.status_code == 403:
+            raise EntitlementError("Key valid, geocoding not entitled")
+        if resp.status_code == 429:
+            time.sleep(backoff)
+            backoff *= 2
+            continue
+        if resp.status_code >= 500:
+            time.sleep(backoff)
+            backoff *= 2
+            continue
+
+        resp.raise_for_status()
+        break
+    else:
+        raise RuntimeError(f"Geocode failed after {retries} attempts")
+
+    items = resp.json().get("items", [])
+    if not items:
+        return None  # No match. Not an error.
+
+    item = items[0]
+    scoring = item.get("scoring", {})
+
+    return {
+        "position": item["position"],           # The address location
+        "access": (item.get("access") or [None])[0],  # Road-network entry point
+        "label": item["address"]["label"],      # Normalized address
+        "result_type": item["resultType"],
+        # "PA" = point address (surveyed). "interpolated" = estimated on a segment.
+        "house_number_type": item.get("houseNumberType"),
+        "query_score": scoring.get("queryScore"),
+        "field_score": scoring.get("fieldScore", {}),
+        "here_id": item["id"],
+        "trusted": scoring.get("queryScore", 0) >= MIN_QUERY_SCORE,
+    }
+
+
+if __name__ == "__main__":
+    result = geocode("425 W Randolph St, Chicago, IL", country="USA")
+    if result is None:
+        print("No match — route to exception queue")
+    elif not result["trusted"]:
+        print(f"Low confidence {result['query_score']} — review: {result['field_score']}")
+    else:
+        # Route to `access`, not `position`. See below.
+        print(result["access"] or result["position"])
+```
+
+```javascript Node.js
+const HOST = "https://geocode.search.hereapi.com/v1/geocode";
+const API_KEY = process.env.HERE_API_KEY;
+const MIN_QUERY_SCORE = 0.9;
+
+class EntitlementError extends Error {}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Forward geocode a free-text address.
+ * @returns {Promise<object|null>} null when no acceptable match exists.
+ */
+export async function geocode(address, { country, retries = 3 } = {}) {
+  const params = new URLSearchParams({ q: address, apiKey: API_KEY, limit: "1" });
+  if (country) params.set("in", `countryCode:${country}`);
+
+  let backoff = 1000;
+  let resp;
+
+  for (let attempt = 0; attempt < retries; attempt++) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 10_000);
+
+    try {
+      resp = await fetch(`${HOST}?${params}`, { signal: ctrl.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+
+    if (resp.status === 403) throw new EntitlementError("Geocoding not entitled");
+    if (resp.status === 429 || resp.status >= 500) {
+      await sleep(backoff + Math.random() * 250); // jitter
+      backoff *= 2;
+      continue;
+    }
+    if (!resp.ok) throw new Error(`HERE returned ${resp.status}`);
+    break;
+  }
+
+  const { items = [] } = await resp.json();
+  if (items.length === 0) return null;
+
+  const item = items[0];
+  const scoring = item.scoring ?? {};
+
+  return {
+    position: item.position,
+    access: item.access?.[0] ?? null,
+    label: item.address.label,
+    resultType: item.resultType,
+    houseNumberType: item.houseNumberType,
+    queryScore: scoring.queryScore,
+    fieldScore: scoring.fieldScore ?? {},
+    hereId: item.id,
+    trusted: (scoring.queryScore ?? 0) >= MIN_QUERY_SCORE,
+  };
+}
+```
+
+```bash cURL
+# Free-text query
+curl -G 'https://geocode.search.hereapi.com/v1/geocode' \
+  --data-urlencode 'q=425 W Randolph St, Chicago, IL' \
+  --data-urlencode 'in=countryCode:USA' \
+  --data-urlencode 'limit=1' \
+  --data-urlencode "apiKey=${HERE_API_KEY}"
+
+# Structured query — better for validating user input.
+# Note: use qq OR q, never both.
+curl -G 'https://geocode.search.hereapi.com/v1/geocode' \
+  --data-urlencode 'qq=street=W Randolph St;houseNumber=425;city=Chicago;state=IL;country=USA' \
+  --data-urlencode "apiKey=${HERE_API_KEY}"
+```
+</CodeGroup>
+
+## Response walkthrough
+
+Abbreviated. Full schema: [HERE geocode documentation](https://docs.here.com/geocoding-and-search/docs/geocode).
+
+```json
+{
+  "items": [{
+    "title": "425 W Randolph St, Chicago, IL 60606-1506, United States",
+    "id": "here:af:streetsection:hdZ6xBRUraY46IQZCqZidD:...",
+    "resultType": "houseNumber",
+    "houseNumberType": "PA",
+    "address": { "label": "...", "countryCode": "USA", "postalCode": "60606-1506" },
+    "position": { "lat": 41.88432, "lng": -87.63877 },
+    "access":  [{ "lat": 41.88449, "lng": -87.63877 }],
+    "scoring": {
+      "queryScore": 0.99,
+      "fieldScore": { "city": 1.0, "streets": [0.9], "houseNumber": 1.0 }
+    }
+  }]
+}
+```
+
+**Four fields decide whether this result is safe to store.**
+
+**`position` vs `access`.** `position` is the address. `access` is the point on the road network where a vehicle arrives. **Route to `access`.** Routing to `position` may target the geometric centre of a building, or a point separated from the road by a car park.
+
+**`houseNumberType`.** `PA` is a surveyed point address. `interpolated` means the position was estimated along a street segment and may be tens of metres off. For last-mile delivery that is the neighbour's door.
+
+**`queryScore`.** Overall match quality, 0–1.
+
+**`fieldScore`.** *Which component* was uncertain. `queryScore: 0.95` with `fieldScore.houseNumber: 0.4` matched the street confidently and the house number badly. That is a different operational risk from `fieldScore.postalCode: 0.8`.
+
+<Warning>
+**Store `fieldScore` and `houseNumberType`.** A coordinate persisted without them is a probabilistic estimate that every downstream system will treat as a fact. Low-confidence fallbacks silently corrupt revenue maps and route vehicles to centroids.
+</Warning>
+
+## Common mistakes
+
+**Sending `q` and `qq` together.** HERE's own guidance notes this produces inconsistent `queryScore`. Pick one.
+
+**Using `/geocode` for place search.** "Find restaurants near me" is [`/discover`](/examples/search-poi).
+
+**Routing to `position` instead of `access`.**
+
+**Discarding `fieldScore`.** The most damaging thing you can do with a geocoding result.
+
+**Porting a confidence threshold from another platform.** `queryScore: 0.9` does not mean what Google's `partial_match: false` means. Recalibrate against your own ground truth.
+
+**Treating an empty `items` array as an error.** No match is a valid outcome. Route it to an exception queue.
+
+**Not normalizing before the call.** `123 Main St` and `123 Main Street` are the same address and two cache misses.
+
+## Production considerations
+
+**Cache permanently.** Buildings are stationary. Key on the *normalized* address. Store coordinates, `access`, `queryScore`, `fieldScore`, `houseNumberType`, and `geocoded_at`.
+
+This is the single largest cost lever available. See [Caching Geocoding Results](/architecture/caching-geocoding-results).
+
+**Do not use a TTL.** A thirty-day expiry invalidates a stable rooftop match for a building that has stood since 1904, and does nothing about the subdivision that opened yesterday. Invalidate on map release, low confidence, correction, or failed delivery.
+
+**Threshold and queue.** Results below your calibrated confidence go to a human, not to the database.
+
+**Batch anything latency-tolerant.** If the result is written to a database rather than rendered to a screen, use [Batch Geocoding](/examples/batch-geocoding).
+
+**Check your contract's storage terms.** Retention of geocoded coordinates is a contract term, not an engineering decision.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Geocoding and Search" href="/guides/geocoding">
+    Endpoint selection, autocomplete vs autosuggest, confidence scores.
+  </Card>
+  <Card title="Caching Geocoding Results" href="/architecture/caching-geocoding-results">
+    Normalization, invalidation, and the privacy question.
+  </Card>
+  <Card title="Address Validation" href="/use-cases/address-validation">
+    Why a geocoder and a validation service answer different questions.
+  </Card>
+  <Card title="Batch Geocoding" href="/examples/batch-geocoding">
+    Four million addresses, once.
+  </Card>
+</CardGroup>
+
+## HERE documentation
+
+- [Geocode endpoint](https://docs.here.com/geocoding-and-search/docs/geocode)
+- [Spatial references](https://docs.here.com/geocoding-and-search/docs/code-geocode-spatial-reference)
+- [Geocoding & Search v7 introduction](https://docs.here.com/geocoding-and-search/docs/introduction-to-here-geocoding-search-api-v7)
+
+---
+
+Need production HERE API keys or implementation support?
+
+Placematic is an official HERE Technologies reseller and implementation partner. [Talk to us](https://placematic.com/contact/).

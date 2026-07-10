@@ -1,0 +1,202 @@
+---
+title: "Render a HERE Map"
+description: "HERE Raster Tile API v3 with Leaflet and MapLibre GL — tile URLs, truck restriction layers, CDN caching, and domain-restricting a browser-exposed key."
+---
+
+# Render a HERE Map
+
+**Problem:** Display a HERE map in a web page.
+
+## Prerequisites
+
+- A HERE **platform** API key with Map Rendering entitlement
+- `export HERE_API_KEY="..."`
+
+<Warning>
+**Raster Tile API v3 replaces Map Tile API v2.**
+
+If you are reading a tutorial using `https://{1-4}.base.maps.ls.hereapi.com/maptile/2.1/basetile/...`, that is the **deprecated v2 API**. It also requires a HERE *developer* account.
+
+**v3 requires a HERE platform account.** Old developer-account keys do not work.
+</Warning>
+
+## The tile URL
+https://maps.hereapi.com/v3/base/mc/{z}/{x}/{y}/{format}?style={style}&apiKey={KEY}
+| Segment | Values |
+|---|---|
+| `base` | `base`, `background`, `blank`, `label` |
+| `mc` | Mercator projection |
+| `{format}` | `png`, `png8`, `jpeg` |
+| `style` | `explore.day`, `explore.night`, `lite.day`, `satellite.day`, `explore.satellite.day` |
+| `size` | `256` or `512` |
+| `ppi` | e.g. `400` for high-DPI |
+
+Query `/v3/info` for the styles available on your account.
+
+## The code
+
+<CodeGroup>
+```javascript Leaflet
+import L from "leaflet";
+
+// Proxy this. A key in frontend JS is public.
+const API_KEY = window.__HERE_KEY__;
+const STYLE = "explore.day";
+
+const map = L.map("map").setView([41.8845, -87.6386], 12);
+
+L.tileLayer(
+  `https://maps.hereapi.com/v3/base/mc/{z}/{x}/{y}/png8` +
+  `?style=${STYLE}&size=512&apiKey=${API_KEY}`,
+  {
+    tileSize: 512,
+    zoomOffset: -1,            // required when tileSize=512
+    maxZoom: 20,
+    // Attribution is CONTRACTUAL. Not decorative.
+    attribution: "© HERE 2026",
+  }
+).addTo(map);
+```
+
+```javascript MapLibre GL
+import maplibregl from "maplibre-gl";
+
+const API_KEY = window.__HERE_KEY__;
+
+const map = new maplibregl.Map({
+  container: "map",
+  center: [-87.6386, 41.8845],   // MapLibre is [lng, lat]. HERE APIs are lat,lng.
+  zoom: 11,
+  style: {
+    version: 8,
+    sources: {
+      "here-base": {
+        type: "raster",
+        tiles: [
+          `https://maps.hereapi.com/v3/base/mc/{z}/{x}/{y}/png8` +
+          `?style=explore.day&size=512&apiKey=${API_KEY}`,
+        ],
+        tileSize: 512,
+        attribution: "© HERE 2026",
+      },
+    },
+    layers: [{ id: "here-base", type: "raster", source: "here-base" }],
+  },
+});
+```
+
+```javascript Truck restrictions layer
+// The transport-attributed layer that has no Google equivalent.
+// Renders weight, height, and hazmat restrictions on the base map.
+const truckLayer = L.tileLayer(
+  `https://maps.hereapi.com/v3/base/mc/{z}/{x}/{y}/png8` +
+  `?style=explore.day` +
+  `&features=vehicle_restrictions:active_and_inactive` +
+  `&size=512&ppi=400&apiKey=${API_KEY}`,
+  { tileSize: 512, zoomOffset: -1, attribution: "© HERE 2026" }
+);
+
+// Toggleable. Overlays and base tiles bill separately —
+// leaving this permanently enabled is a cost decision, not a styling one.
+L.control.layers(
+  { "Standard": baseLayer },
+  { "Truck restrictions": truckLayer }
+).addTo(map);
+```
+
+```bash cURL
+# One tile, Chicago, with truck restrictions rendered
+curl -o tile.png \
+  "https://maps.hereapi.com/v3/base/mc/11/525/761/png\
+?style=explore.day\
+&features=vehicle_restrictions:active_and_inactive\
+&ppi=400&size=512&apiKey=${HERE_API_KEY}"
+
+# Satellite
+curl -o sat.png \
+  "https://maps.hereapi.com/v3/base/mc/15/17589/10747/png\
+?style=satellite.day&ppi=400&size=512&apiKey=${HERE_API_KEY}"
+
+# Which styles does this account have?
+curl "https://maps.hereapi.com/v3/info?apiKey=${HERE_API_KEY}"
+```
+</CodeGroup>
+
+## Useful parameters
+
+**`features=`** selects optional tile content. Available features are **defined per style** — each style supports a different set.
+
+| Feature | Effect |
+|---|---|
+| `vehicle_restrictions:active_and_inactive` | Truck weight/height restrictions |
+| `environmental_zones:all` | Low-emission zones |
+| `pois:disabled` | Hide POI labels |
+
+**`pview=`** renders boundaries per a country's geopolitical view (ISO 3166-1 alpha-2). Relevant where territory is disputed. This is a legal and product decision, not a default.
+
+**`lang` / `lang2`** — BCP47, ISO 639-1 two-letter codes. (v2 used three-letter MARC codes; the parameter names and format both changed.)
+
+## Common mistakes
+
+**Using the deprecated v2 tile host.** `base.maps.ls.hereapi.com/maptile/2.1/...`
+
+**Using a developer-account key against v3.** It requires a platform account.
+
+**Shipping an unrestricted key in frontend JavaScript.** It is public. If it has no domain restriction, it is now someone else's key and someone else's invoice.
+
+**No CDN in front of tiles.** They are static per zoom, x, y, style. This is the highest-leverage cost reduction in rendering, and it is available on any platform.
+
+**`tileSize: 512` without `zoomOffset: -1`** in Leaflet. Your map is at the wrong zoom.
+
+**Reversing coordinate order.** MapLibre and GeoJSON are `[lng, lat]`. HERE REST APIs are `lat,lng`.
+
+**Traffic overlay always on.** It is a separate meter.
+
+**Omitting attribution.** Contractual.
+
+**Assuming web tile entitlement covers the mobile SDK.** Separate entitlements. Discovered at app store submission.
+
+**Rendering a full interactive map where a static image would serve.** A thumbnail on a job card does not need panning.
+
+## Production considerations
+
+**Put a CDN in front of tile requests.** Fix this first.
+
+**Restrict browser keys by domain.** Consider a thin server-side proxy: keeps the key private, adds a cache layer and per-tenant metering, costs latency.
+
+**Make overlays toggleable and attributable.** Traffic and restriction layers bill separately from base tiles.
+
+**Do not pre-fetch aggressively.** Tiles fetched and never viewed are pure spend.
+
+**Billing model varies by implementation.** Web tiles, mobile SDK, and static maps meter differently for what looks like the same map. Know which one you shipped before you forecast.
+
+**Query `/v3/info`** to confirm which styles your entitlement includes.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Maps" href="/guides/maps">
+    Vector vs raster, entitlement boundaries, and billing models.
+  </Card>
+  <Card title="Display a Route on a Map" href="/examples/display-route-on-map">
+    Decoding a Flexible Polyline and drawing it.
+  </Card>
+  <Card title="Traffic Flow" href="/examples/traffic-flow">
+    Overlaying live congestion.
+  </Card>
+  <Card title="HERE SDK" href="/guides/here-sdk">
+    When you need offline and on-device rendering instead.
+  </Card>
+</CardGroup>
+
+## HERE documentation
+
+- [HERE Raster Tile API v3](https://www.here.com/docs/category/raster-tile-api-v3)
+- [Map Tile v2 → Raster Tile v3 migration guide](https://docs.here.com/map-rendering/docs/migration-guide-raster-tile-api)
+- [Raster Tile API v3 reference](https://developer.here.com/documentation/raster-tile-api/api-reference.html)
+
+---
+
+Need production HERE API keys or implementation support?
+
+Placematic is an official HERE Technologies reseller and implementation partner. [Talk to us](https://placematic.com/contact/).

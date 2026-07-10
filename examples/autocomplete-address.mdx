@@ -1,0 +1,252 @@
+---
+title: "Autocomplete an Address"
+description: "Type-ahead address entry with HERE Geocoding & Search v7 — debouncing, request cancellation, and why /autocomplete is not /autosuggest."
+---
+
+# Autocomplete an Address
+
+**Problem:** A user is typing an address. I need suggestions without billing per keystroke.
+
+<Warning>
+**Undebounced, you bill once per character typed, per session, forever.** A twenty-character address is twenty transactions.
+
+This is the single largest unforced cost in consumer-facing location apps.
+</Warning>
+
+## Prerequisites
+
+- A HERE API key with Geocoding & Search entitlement
+- `export HERE_API_KEY="..."`
+
+<Info>
+**`/autocomplete` and `/autosuggest` are not synonyms.**
+
+| Endpoint | Host | Use for |
+|---|---|---|
+| `/v1/autocomplete` | `autocomplete.search.hereapi.com` | **Structured address input.** Checkout, delivery, dispatch |
+| `/v1/autosuggest` | `autosuggest.search.hereapi.com` | **Broader discovery.** Places, categories, misspellings |
+
+Picking the wrong one produces a type-ahead that feels broken to users and correct to engineers.
+</Info>
+
+## The code
+
+<CodeGroup>
+```javascript Node.js / browser
+const HOST = "https://autocomplete.search.hereapi.com/v1/autocomplete";
+const API_KEY = process.env.HERE_API_KEY;   // proxy this in the browser
+
+const DEBOUNCE_MS = 250;   // 200–300ms. Not zero.
+const MIN_CHARS = 3;       // "1" matches nothing useful
+
+let timer = null;
+let inFlight = null;
+
+/**
+ * Debounced, cancellable address autocomplete.
+ *
+ * Two things prevent the bill:
+ *   1. Debounce — one request per pause, not per keystroke
+ *   2. AbortController — cancel the previous request when a newer one starts
+ */
+export function autocompleteAddress(query, { at, countryCode, limit = 5 }) {
+  return new Promise((resolve, reject) => {
+    clearTimeout(timer);
+
+    if (query.length < MIN_CHARS) {
+      resolve([]);
+      return;
+    }
+
+    timer = setTimeout(async () => {
+      // Cancel the previous in-flight request. The user has typed more;
+      // its result is already stale.
+      inFlight?.abort();
+      const ctrl = new AbortController();
+      inFlight = ctrl;
+
+      const params = new URLSearchParams({
+        q: query,
+        limit: String(limit),
+        apiKey: API_KEY,
+      });
+      // Bias toward the user's location. Improves relevance materially.
+      if (at) params.set("at", at);                     // "lat,lng"
+      if (countryCode) params.set("in", `countryCode:${countryCode}`);
+
+      const timeout = setTimeout(() => ctrl.abort(), 5_000);
+
+      try {
+        const resp = await fetch(`${HOST}?${params}`, { signal: ctrl.signal });
+        if (resp.status === 403) throw new Error("Autocomplete not entitled");
+        if (!resp.ok) throw new Error(`HERE returned ${resp.status}`);
+
+        const { items = [] } = await resp.json();
+        resolve(items.map((it) => ({
+          label: it.address.label,
+          hereId: it.id,          // ← store this. Resolve later with /lookup.
+          resultType: it.resultType,
+          highlights: it.highlights,   // for bolding the matched substring
+        })));
+      } catch (err) {
+        if (err.name === "AbortError") return;   // superseded. Not an error.
+        reject(err);
+      } finally {
+        clearTimeout(timeout);
+      }
+    }, DEBOUNCE_MS);
+  });
+}
+```
+
+```python Python
+import os
+import requests
+
+HOST = "https://autocomplete.search.hereapi.com/v1/autocomplete"
+API_KEY = os.environ["HERE_API_KEY"]
+
+
+class EntitlementError(Exception): ...
+
+
+def autocomplete(query: str, at: str | None = None,
+                 country: str | None = None, limit: int = 5) -> list[dict]:
+    """
+    Server-side autocomplete — e.g. behind your own debounced proxy.
+
+    Debouncing belongs in the CLIENT. If you call this per keystroke
+    from a backend, you have moved the problem, not solved it.
+    """
+    if len(query) < 3:
+        return []
+
+    params = {"q": query, "limit": limit, "apiKey": API_KEY}
+    if at:
+        params["at"] = at                       # "lat,lng" — biases relevance
+    if country:
+        params["in"] = f"countryCode:{country}"  # ISO 3166-1 alpha-3
+
+    resp = requests.get(HOST, params=params, timeout=5)
+    if resp.status_code == 403:
+        raise EntitlementError("Autocomplete not entitled")
+    resp.raise_for_status()
+
+    return [
+        {
+            "label": it["address"]["label"],
+            "here_id": it["id"],
+            "result_type": it["resultType"],
+        }
+        for it in resp.json().get("items", [])
+    ]
+```
+
+```bash cURL
+# Address completion — checkout, delivery, dispatch
+curl -G 'https://autocomplete.search.hereapi.com/v1/autocomplete' \
+  --data-urlencode 'q=425 W Randolph' \
+  --data-urlencode 'at=41.8845,-87.6386' \
+  --data-urlencode 'in=countryCode:USA' \
+  --data-urlencode 'limit=5' \
+  --data-urlencode "apiKey=${HERE_API_KEY}"
+
+# Autosuggest — places, categories, misspellings. A DIFFERENT endpoint.
+curl -G 'https://autosuggest.search.hereapi.com/v1/autosuggest' \
+  --data-urlencode 'q=resta' \
+  --data-urlencode 'at=52.5200,13.4050' \
+  --data-urlencode 'limit=5' \
+  --data-urlencode "apiKey=${HERE_API_KEY}"
+```
+</CodeGroup>
+
+## Response walkthrough
+
+```json
+{
+  "items": [{
+    "title": "425 W Randolph St, Chicago, IL 60606-1506, United States",
+    "id": "here:af:streetsection:hdZ6xBRUraY46IQZCqZidD:...",
+    "resultType": "houseNumber",
+    "address": { "label": "425 W Randolph St, Chicago, IL 60606-1506, United States" },
+    "highlights": {
+      "title": [{ "start": 0, "end": 14 }],
+      "address": { "label": [{ "start": 0, "end": 14 }] }
+    }
+  }]
+}
+```
+
+**`id`** — the HERE ID. Store it. When the user selects a suggestion, resolve it with `/v1/lookup` rather than re-geocoding the label string.
+
+**`highlights`** — character offsets of the matched substring. Bold them in the dropdown.
+
+**No `position`.** Autocomplete returns addresses, not coordinates. Resolve the selected item.
+
+<Tip>
+The efficient flow: `/autocomplete` while typing (cheap, debounced) → user selects → `/lookup` by `id` (one call, exact) → cache the result permanently.
+
+Re-geocoding the label string with `/geocode` after the user has already handed you a HERE ID is a wasted call and a worse match.
+</Tip>
+
+## Common mistakes
+
+**No debounce.** One transaction per character.
+
+**No `AbortController`.** The user typed "425 W Ra" — the response for "425 W R" is already stale and you are still paying to receive it.
+
+**Firing below three characters.** `"1"` matches nothing useful and bills anyway.
+
+**Using `/autosuggest` for an address field.** It returns places and categories. Users get "Randolph Street Market" where they wanted an address.
+
+**Using `/autocomplete` for a search box.** No typo tolerance, no places.
+
+**Sending `q` and `qq` together.** HERE's own guidance: this produces inconsistent scoring. That applies to `/geocode`; keep autocomplete queries clean.
+
+**Not passing `at`.** Location bias improves relevance materially and costs nothing.
+
+**Re-geocoding the selected label** instead of `/lookup` by `id`.
+
+**Shipping the API key to the browser** without a domain restriction. Any key in frontend JavaScript is public.
+
+## Production considerations
+
+**Debounce at 200–300ms.** Below 200ms you bill for typing pauses. Above 300ms it feels laggy.
+
+**Cancel superseded requests.** `AbortError` is a normal outcome, not a failure to log.
+
+**Proxy through your backend.** Keeps the key private, gives you a cache layer and per-tenant metering. Costs latency. Decide deliberately.
+
+**Restrict browser-exposed keys by domain.** If it has no restriction, it is now someone else's key and someone else's invoice.
+
+**Cache selections permanently**, keyed on the HERE ID. See [Caching Geocoding Results](/architecture/caching-geocoding-results).
+
+**Prevention beats correction.** An address entered from a validated suggestion does not need fixing later. This is the cheapest address-quality intervention available. See [Address Validation](/use-cases/address-validation).
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Geocoding and Search" href="/guides/geocoding">
+    Seven endpoints, one correct choice per job.
+  </Card>
+  <Card title="Search Nearby POIs" href="/examples/search-poi">
+    `/discover` and `/browse` — the endpoints autocomplete is not.
+  </Card>
+  <Card title="Address Validation" href="/use-cases/address-validation">
+    Prevention at the source.
+  </Card>
+  <Card title="Cost Optimization Patterns" href="/architecture/cost-optimization-patterns">
+    Pattern 1: the keystroke is the wrong unit of work.
+  </Card>
+</CardGroup>
+
+## HERE documentation
+
+- [Geocoding & Search v7 introduction](https://docs.here.com/geocoding-and-search/docs/introduction-to-here-geocoding-search-api-v7)
+- [Developer insights and best practices](https://www.here.com/learn/blog/here-geocoding-and-search-api-developer-insights-and-best-practices)
+
+---
+
+Need production HERE API keys or implementation support?
+
+Placematic is an official HERE Technologies reseller and implementation partner. [Talk to us](https://placematic.com/contact/).

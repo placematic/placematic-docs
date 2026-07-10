@@ -1,0 +1,331 @@
+---
+title: "Route Matching"
+description: "Map-matching a GPS trace to road segments with HERE Route Matching v8 — confidence values, warnings, and the MapVersion field that makes an audit artifact possible."
+---
+
+# Route Matching
+
+**Problem:** I have a noisy GPS trace. I need the road segments the vehicle actually drove, defensibly.
+
+<Warning>
+[Reverse geocoding](/examples/reverse-geocode) returns an address near a coordinate. It cannot tell you which road the vehicle drove and it will not survive an audit.
+
+These are different APIs solving different problems. Conflating them is common and it is how IFTA filings get disputed.
+</Warning>
+
+## Prerequisites
+
+- A HERE API key with Route Matching entitlement
+- `export HERE_API_KEY="..."`
+- A trace: GPX, NMEA, CSV, or JSON
+
+<Info>
+**Route Matching v8 lives at `routematching.hereapi.com`.**
+
+If you are reading a tutorial using `m.fleet.ls.hereapi.com/2/matchroute.json`, that is the legacy Fleet Telematics Route Matching API. Prefer v8 for new work.
+</Info>
+
+## The code
+
+The trace is the **request body**. The endpoint is `POST /v8/match/routelinks`.
+
+<CodeGroup>
+```python Python
+import os
+import io
+import time
+import csv
+import requests
+
+HOST = "https://routematching.hereapi.com/v8/match/routelinks"
+API_KEY = os.environ["HERE_API_KEY"]
+
+# Below this, the matched link is a guess. Surface it; do not persist as fact.
+MIN_CONFIDENCE = 0.6
+
+
+class EntitlementError(Exception): ...
+
+
+def trace_to_csv(points: list[dict]) -> str:
+    """
+    points: [{"lat": .., "lon": .., "timestamp": epoch_ms, "speedMps": ..}, ...]
+    Points MUST be in temporal order. A trace is a sequence, not a set.
+    """
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["latitude", "longitude", "timestamp", "speedMps"])
+    for p in points:
+        w.writerow([p["lat"], p["lon"], p.get("timestamp", 0), p.get("speedMps", 0)])
+    return buf.getvalue()
+
+
+def match_trace(csv_body: str, mode: str = "fastest;truck;traffic:disabled") -> dict:
+    """
+    Map-match a GPS trace to road links.
+
+    `routeMatch=1` requests a fully drivable, gap-free route path.
+    `legal=...` requests warnings for traffic-rule violations along the match.
+    """
+    params = {
+        "routeMatch": 1,
+        "mode": mode,
+        # Warn on access restrictions, one-ways, through-traffic, illegal turns.
+        "legal": "access,oneway,thrutraf,turn",
+        "apiKey": API_KEY,
+    }
+
+    backoff = 2.0
+    for _ in range(3):
+        resp = requests.post(
+            HOST, params=params,
+            data=csv_body.encode("utf-8"),
+            headers={"Content-Type": "text/plain"},
+            # HERE cancels waypoint requests exceeding ~50s of computation.
+            timeout=70,
+        )
+        if resp.status_code == 403:
+            raise EntitlementError("Route Matching not entitled")
+        if resp.status_code == 429 or resp.status_code >= 500:
+            time.sleep(backoff); backoff *= 2; continue
+        resp.raise_for_status()
+        break
+    else:
+        raise RuntimeError("Route matching failed after retries")
+
+    return resp.json()
+
+
+def audit_artifact(raw_points: list[dict], response: dict) -> dict:
+    """
+    THE thing you must be able to produce for a regulator.
+
+    Matched output is a DERIVATION. Keep the source, and record the map
+    version that produced it — a trip matched in March against a March map
+    may match differently in September. Both can be correct.
+    """
+    trace_points = response.get("TracePoints", [])
+    low_conf = [
+        tp for tp in trace_points
+        if tp.get("confidenceValue", 0) < MIN_CONFIDENCE
+    ]
+    return {
+        "raw_trace": raw_points,                        # immutable source
+        "route_links": response.get("RouteLinks", []),  # the segments driven
+        "map_version": response.get("MapVersion"),      # ← cite this
+        "matched_at": int(time.time()),
+        "warnings": response.get("Warnings", []),
+        "low_confidence_count": len(low_conf),
+    }
+
+
+if __name__ == "__main__":
+    points = [
+        {"lat": 50.4552744, "lon": 30.5213118, "timestamp": 1479954513000, "speedMps": 10.7},
+        {"lat": 50.4550313, "lon": 30.5205023, "timestamp": 1479954523000, "speedMps": 11.1},
+        # ... a full trip, segmented and downsampled BEFORE submission
+    ]
+    resp = match_trace(trace_to_csv(points))
+    artifact = audit_artifact(points, resp)
+
+    print(f"Matched against map version {artifact['map_version']}")
+    print(f"{len(artifact['route_links'])} road links")
+    if artifact["low_confidence_count"]:
+        print(f"⚠ {artifact['low_confidence_count']} low-confidence points — review")
+```
+
+```javascript Node.js
+const HOST = "https://routematching.hereapi.com/v8/match/routelinks";
+const API_KEY = process.env.HERE_API_KEY;
+const MIN_CONFIDENCE = 0.6;
+
+class EntitlementError extends Error {}
+
+function traceToCsv(points) {
+  const header = "latitude,longitude,timestamp,speedMps";
+  const rows = points.map(
+    (p) => `${p.lat},${p.lon},${p.timestamp ?? 0},${p.speedMps ?? 0}`
+  );
+  return [header, ...rows].join("\n");
+}
+
+export async function matchTrace(csvBody, mode = "fastest;truck;traffic:disabled") {
+  const params = new URLSearchParams({
+    routeMatch: "1",
+    mode,
+    legal: "access,oneway,thrutraf,turn",
+    apiKey: API_KEY,
+  });
+
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 70_000); // HERE cancels around 50s
+
+  let resp;
+  try {
+    resp = await fetch(`${HOST}?${params}`, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: csvBody,
+      signal: ctrl.signal,
+    });
+  } finally {
+    clearTimeout(t);
+  }
+
+  if (resp.status === 403) throw new EntitlementError("Route Matching not entitled");
+  if (!resp.ok) throw new Error(`HERE returned ${resp.status}`);
+
+  return resp.json();
+}
+
+/** Persist all four. Anything less is an assertion, not an artifact. */
+export function auditArtifact(rawPoints, response) {
+  const lowConf = (response.TracePoints ?? [])
+    .filter((tp) => (tp.confidenceValue ?? 0) < MIN_CONFIDENCE);
+
+  return {
+    rawTrace: rawPoints,
+    routeLinks: response.RouteLinks ?? [],
+    mapVersion: response.MapVersion,   // cite this in any dispute
+    matchedAt: Date.now(),
+    warnings: response.Warnings ?? [],
+    lowConfidenceCount: lowConf.length,
+  };
+}
+```
+
+```bash cURL
+# Trace as request body. GPX, NMEA, CSV, or JSON.
+curl -X POST \
+  --data-binary "@trip-2026-07-09.csv" \
+  -H "Content-Type: text/plain" \
+  "https://routematching.hereapi.com/v8/match/routelinks?\
+routeMatch=1&\
+mode=fastest;truck;traffic:disabled&\
+legal=access,oneway,thrutraf,turn&\
+apiKey=${HERE_API_KEY}"
+```
+</CodeGroup>
+
+## Response walkthrough
+
+Three keys plus `MapVersion`. Abbreviated.
+
+```json
+{
+  "RouteLinks": [
+    { "linkId": -828692902, "functionalClass": 3,
+      "shape": "50.4546089 30.5209694 50.4544411 30.5210896",
+      "linkLength": 18.44 }
+  ],
+  "TracePoints": [
+    { "lat": 50.4552744, "lon": 30.5213118,
+      "latMatched": 50.4546089, "lonMatched": 30.5209694,
+      "linkIdMatched": -828692902,
+      "confidenceValue": 0.94,
+      "matchDistance": 4.59,
+      "routeLinkSeqNrMatched": 10,
+      "headingMatched": 25.2 }
+  ],
+  "Warnings": [
+    { "tracePointSeqNum": 1, "routeLinkSeqNum": 2, "category": 1005,
+      "text": "Tracepoint #0 moved by 83 meter onto the route" }
+  ],
+  "MapVersion": "17116"
+}
+```
+
+**`RouteLinks`** — the road segments, in order, gap-free. `linkId` is the join key.
+
+**`TracePoints`** — one per input point. `linkIdMatched` joins to `RouteLinks`. `confidenceValue` is per-point.
+
+<Warning>
+**`confidenceValue` is the field that separates a defensible match from a guess.**
+
+A dense interchange with sparse sampling produces several plausible interpretations. HERE tells you which points it was unsure about. Surface them. Do not persist a 0.4-confidence match as fact.
+</Warning>
+
+**`Warnings`** — traffic-rule violations and matching anomalies, when `legal=` is requested. Category `1010` is "vehicle stopped"; `1005` is a point moved onto the route. These are how you detect idle periods you should have segmented out before submitting.
+
+**`MapVersion`** — the single most important field on this page for compliance work.
+
+<Tip>
+For IFTA, the defensible artifact is: **raw trace + matched links + `MapVersion` + match timestamp.** Anything less is an assertion.
+
+A trip matched in March against map `17116` may match differently in September against a newer map. Both matches can be correct. Without recording which map produced which result, you cannot explain the discrepancy — and you will be asked to.
+</Tip>
+
+## Common mistakes
+
+**Using reverse geocoding to reconstruct driven routes.** Addresses, not segments.
+
+**Matching packets instead of trips.** Match on trip close.
+
+**Submitting the parked portion of a trace.** A vehicle idle for four hours emits thousands of points describing a parking space. Segment first.
+
+**Not downsampling.** Sub-second sampling adds cost and no information.
+
+**Points out of temporal order.** A trace is a sequence.
+
+**Not persisting the raw trace.** The matched output is a derivation.
+
+**Not recording `MapVersion`.**
+
+**Ignoring `confidenceValue`.** Low-confidence matches persisted as truth.
+
+**Comparing GPS speed against the *nearest* road's limit** rather than the matched link's. False violations on frontage roads parallel to highways.
+
+**Matching in real time for retrospective reporting.** Nothing is waiting. Batch it overnight.
+
+**Blaming the matcher for a ten-minute sampling interval.** Sampling rate is a device configuration decision that dominates every architectural one below it.
+
+**No timeout headroom.** HERE cancels waypoint requests exceeding roughly 50 seconds of computation.
+
+## Production considerations
+
+**Segment trips before matching.** Detect start, stop, idle. Drop the parked portions.
+
+**Downsample.** In real telematics feeds this removes a substantial fraction of points at no information cost.
+
+**Batch, overnight.** Latency is worth nothing here and it costs money.
+
+**Store the matched result.** Re-matching for a report six months later bills again *and* may produce a different answer.
+
+**Version against the map release.** Non-negotiable for compliance.
+
+**Use truck mode for trucks.** `mode=fastest;truck;traffic:disabled`. A car-mode match against a truck's trace produces links a truck could not legally traverse.
+
+**Fix sampling rate at the device** before tuning anything upstream.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Route Matching" href="/guides/route-matching">
+    Why map matching is inference, and where it goes wrong.
+  </Card>
+  <Card title="ELD Platform" href="/use-cases/eld-platform">
+    HOS coupling, IFTA, and the audit artifact in full.
+  </Card>
+  <Card title="Vehicle Tracking" href="/use-cases/vehicle-tracking">
+    Ingesting GPS without touching an API per packet.
+  </Card>
+  <Card title="Reverse Geocode" href="/examples/reverse-geocode">
+    What this is not.
+  </Card>
+</CardGroup>
+
+## HERE documentation
+
+- [Route Matching v8 get started](https://www.here.com/docs/bundle/route-matching-api-developer-guide/page/README.html)
+- [Match a trace](https://www.here.com/docs/bundle/route-matching-api-developer-guide/page/topics/match-trace.html)
+- [Route Matching v8 API reference](https://www.here.com/docs/bundle/route-matching-api-v8-api-reference/page/index.html)
+
+## Placematic
+
+- [Route Matching](https://placematic.com/here-location-services/here-route-matching/)
+
+---
+
+Need production HERE API keys or implementation support?
+
+Placematic is an official HERE Technologies reseller and implementation partner. We have deployed HERE into production ELD systems. [Talk to us](https://placematic.com/contact/).

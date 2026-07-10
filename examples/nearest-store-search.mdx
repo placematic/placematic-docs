@@ -1,0 +1,259 @@
+---
+title: "Nearest Store Search"
+description: "An end-to-end recipe: PostGIS shortlist, one matrix call to rank by drive time, and why straight-line distance is a bad ranker and an excellent filter."
+---
+
+# Nearest Store Search
+
+**Problem:** A customer enters an address. Show them the nearest store — by drive time, not by circle.
+
+<Warning>
+A store 800 metres away across a river, a rail line, or a limited-access highway is **not close.**
+
+Ranking by straight-line distance is the defect that gets store locators rebuilt.
+</Warning>
+
+## The pattern
+
+Two stages. The first is free.
+Geocode the customer address        → 1 API call (usually a cache hit)
+ST_DWithin: k nearest by distance   → 0 API calls. PostGIS.
+Matrix: origin × k, drive time      → 1 API call
+Sort by travel time                 → 0 API calls
+
+**Straight-line distance is a bad ranker and an excellent filter.** It narrows 2,000 stores to 10 for free. Matrix ranks those 10 correctly.
+
+<Info>
+Cost is bounded by `k`, not by store count. A 5,000-store network and a 50-store network cost the same per lookup.
+</Info>
+
+## Prerequisites
+
+- HERE API key with Geocoding & Search and Matrix Routing entitlement
+- PostGIS with your stores in an indexed `geography` column
+- `export HERE_API_KEY="..."`
+
+## The code
+
+```python Python
+import os
+import time
+import requests
+import psycopg2
+
+GEOCODE = "https://geocode.search.hereapi.com/v1/geocode"
+MATRIX = "https://matrix.router.hereapi.com/v8"
+API_KEY = os.environ["HERE_API_KEY"]
+
+K = 10   # shortlist size. Bounds the matrix, and therefore the bill.
+
+
+# --- Stage 1: geocode the customer. Cached permanently. -------------------
+_geo_cache: dict[str, dict] = {}
+
+
+def geocode_customer(address: str) -> dict:
+    """Buildings are stationary. Key on the NORMALIZED address."""
+    key = normalize(address)
+    if key in _geo_cache:
+        return _geo_cache[key]
+
+    resp = requests.get(GEOCODE, params={
+        "q": address, "limit": 1, "apiKey": API_KEY,
+    }, timeout=10)
+    if resp.status_code == 403:
+        raise RuntimeError("Geocoding not entitled")
+    resp.raise_for_status()
+
+    items = resp.json().get("items", [])
+    if not items:
+        raise ValueError("Address not found")
+
+    it = items[0]
+    # `access` is the road-network entry point. Route to this, not `position`.
+    pos = (it.get("access") or [it["position"]])[0]
+    _geo_cache[key] = pos
+    return pos
+
+
+def normalize(addr: str) -> str:
+    return " ".join(addr.lower().replace(",", " ").split())
+
+
+# --- Stage 2: PostGIS shortlist. ZERO API calls. --------------------------
+def shortlist(conn, lat: float, lng: float, k: int = K) -> list[dict]:
+    """
+    k nearest stores by straight-line distance.
+
+    Sub-millisecond against a GIST index. Indifferent to your traffic.
+    This step exists to make stage 3 cheap.
+    """
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT id, name, ST_Y(geom::geometry), ST_X(geom::geometry)
+            FROM stores
+            WHERE open_now
+            ORDER BY geom <-> ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography
+            LIMIT %s
+        """, (lng, lat, k))          # note: MakePoint is (lng, lat)
+        return [
+            {"id": r[0], "name": r[1], "lat": r[2], "lng": r[3]}
+            for r in cur.fetchall()
+        ]
+
+
+# --- Stage 3: ONE matrix call. Not k routing calls. -----------------------
+def rank_by_drive_time(origin: dict, stores: list[dict]) -> list[dict]:
+    """
+    1 origin × k destinations = ONE matrix request.
+
+    k routing calls would be k requests. At store-locator traffic,
+    that ratio is your entire cost structure.
+    """
+    body = {
+        "origins": [{"lat": origin["lat"], "lng": origin["lng"]}],
+        "destinations": [{"lat": s["lat"], "lng": s["lng"]} for s in stores],
+        "regionDefinition": {
+            # Region mode. Max 400km diameter. 1×10 is well within sync limits.
+            "type": "circle",
+            "center": {"lat": origin["lat"], "lng": origin["lng"]},
+            "radius": 100_000,
+        },
+        "matrixAttributes": ["travelTimes", "distances"],
+    }
+
+    resp = requests.post(f"{MATRIX}/matrix",
+                         params={"apiKey": API_KEY, "async": "false"},
+                         json=body, timeout=30)
+    if resp.status_code == 403:
+        raise RuntimeError("Matrix Routing not entitled")
+    resp.raise_for_status()
+
+    m = resp.json()["matrix"]
+    n_dest = m["numDestinations"]
+
+    ranked = []
+    for j, store in enumerate(stores):
+        # Flat, row-major. origin index is 0. Write the helper once.
+        idx = 0 * n_dest + j
+        err = (m.get("errorCodes") or [0] * n_dest)[idx]
+        if err:
+            continue    # 1=disconnected 2=no match 3=violates restriction
+        ranked.append({
+            **store,
+            "travel_time_s": m["travelTimes"][idx],
+            "distance_m": m["distances"][idx],
+        })
+
+    return sorted(ranked, key=lambda s: s["travel_time_s"])
+
+
+# --- Put together ---------------------------------------------------------
+def nearest_stores(conn, address: str) -> list[dict]:
+    customer = geocode_customer(address)
+    candidates = shortlist(conn, customer["lat"], customer["lng"])
+    if not candidates:
+        return []                       # Do NOT silently expand the radius
+    return rank_by_drive_time(customer, candidates)
+
+
+if __name__ == "__main__":
+    conn = psycopg2.connect(os.environ["DATABASE_URL"])
+    for s in nearest_stores(conn, "425 W Randolph St, Chicago, IL"):
+        mins = round(s["travel_time_s"] / 60)
+        print(f"{mins} min — {s['name']}")
+```
+
+## Schema
+
+```sql
+CREATE TABLE stores (
+  id        bigserial PRIMARY KEY,
+  name      text NOT NULL,
+  geom      geography(Point, 4326) NOT NULL,
+  open_now  boolean NOT NULL DEFAULT true
+);
+
+-- The entire performance story.
+CREATE INDEX stores_geom_idx ON stores USING GIST (geom);
+```
+
+## Why not query HERE for your stores?
+
+<Warning>
+Your stores live in **your** database.
+
+Querying HERE's public place index for them is fragile and expensive, and it will silently miss the store that opened last week — map data ships on a release cadence. Your store table does not.
+</Warning>
+
+Hours, services, and inventory change hourly. No mapping API knows them.
+
+## Common mistakes
+
+**Ranking by straight-line distance.** Rivers.
+
+**Matrix over the entire store network** instead of a shortlist.
+
+**k routing calls to rank** instead of one matrix call.
+
+**Querying `/discover` or `/browse` for your own stores.**
+
+**Silently expanding the radius** until a result appears. A locator that cheerfully sends people 200 miles.
+
+**Routing to `position` instead of `access`.**
+
+**Computing directions on page render.** Most visitors never click. Directions on click only.
+
+**Not caching the ranking.** For a user coordinate rounded to ~3 decimal places, the drive-time ranking of nearby stores is stable for weeks.
+
+**No `GIST` index.** Sequential scan over stores.
+
+**Ignoring matrix `errorCodes`.** `3` means a route was found *but it violates a restriction*.
+
+## Production considerations
+
+**Cache the ranked result**, keyed on rounded user coordinate. Dense urban areas produce enormous hit rates.
+
+**Geocode cache hit rate approaches 1.** Users type city names and ZIP codes, not distinct street addresses.
+
+**Directions on click, not on render.**
+
+**CDN in front of tiles.**
+
+**Filter by business rules in SQL**, before the matrix call. `open_now`, `has_pharmacy`, `in_stock` — your data, free.
+
+**Restrict browser-exposed keys by domain.**
+
+**Target cost structure:** bounded per lookup, independent of network size, dominated by cache misses.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Store Locator" href="/use-cases/store-locator">
+    The full architecture, and the build-vs-buy decision.
+  </Card>
+  <Card title="Distance Matrix" href="/examples/distance-matrix">
+    Modes, ceilings, and the flat array.
+  </Card>
+  <Card title="Geocode an Address" href="/examples/geocode-address">
+    `access` vs `position`, and confidence scoring.
+  </Card>
+  <Card title="Routing vs Matrix" href="/architecture/choosing-routing-vs-matrix">
+    Why k routing calls is the wrong primitive.
+  </Card>
+</CardGroup>
+
+## HERE documentation
+
+- [Matrix Routing v8 OpenAPI specification](https://matrix.router.hereapi.com/v8/openapi)
+- [Geocode endpoint](https://docs.here.com/geocoding-and-search/docs/geocode)
+
+## Placematic
+
+- [Pos-Eye — embeddable store locator](https://placematic.com/store-locator/)
+
+---
+
+Need production HERE API keys or implementation support?
+
+Placematic is an official HERE Technologies reseller and implementation partner. [Talk to us](https://placematic.com/contact/).

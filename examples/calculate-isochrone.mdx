@@ -1,0 +1,300 @@
+---
+title: "Calculate an Isochrone"
+description: "Drive-time and consumption isolines with HERE Isoline Routing v8 — flexible polyline decoding, multiple range bands in one call, and materializing the result."
+---
+
+# Calculate an Isochrone
+
+**Problem:** I need the polygon of everywhere reachable from a point within 20 minutes.
+
+<Warning>
+Compute this **once, offline**, and store the polygon. If your system calls this API during a checkout serviceability check, you have built a spatial database with an API bill attached.
+
+The whole point of an isoline is that it is a materialized artifact. See [Delivery Zones](/use-cases/delivery-zones).
+</Warning>
+
+## Prerequisites
+
+- A HERE API key with Isoline Routing entitlement
+- `export HERE_API_KEY="..."`
+- A Flexible Polyline decoder ([HERE's reference implementations](https://github.com/heremaps/flexible-polyline))
+
+<Info>
+**Isoline Routing is its own API**, at `isoline.router.hereapi.com`, not an endpoint on the Routing API. This changed in v8.
+
+If you are reading a tutorial using `isoline.route.ls.hereapi.com/routing/7.2/calculateisoline.json`, you are reading v7. Migration notes: `start` → `origin`; `range` + `rangeType` → `range[type]` + `range[values]`; `resolution` → `shape[maxResolution]` (and it is now 3× as precise); XML is gone; **truck parameters are deprecated in favour of `vehicle`**.
+</Info>
+
+## The code
+
+<CodeGroup>
+```python Python
+import os
+import time
+import requests
+from flexpolyline import decode  # pip install flexpolyline
+
+HOST = "https://isoline.router.hereapi.com/v8/isolines"
+API_KEY = os.environ["HERE_API_KEY"]
+
+
+class EntitlementError(Exception): ...
+class NoIsolineError(Exception):
+    """isolineCalculationFailed — e.g. origin in the ocean."""
+
+
+def isolines(
+    origin: str,                    # "lat,lng"
+    range_values: list[int],        # seconds (time), metres (distance), Wh (consumption)
+    range_type: str = "time",       # "time" | "distance" | "consumption"
+    transport_mode: str = "car",
+    departure_time: str | None = None,
+    max_points: int = 200,          # >=30 enforced; >100 recommended for quality
+) -> list[dict]:
+    """
+    Compute one or more isoline bands from a single origin.
+
+    Multiple range values in ONE call. Do not loop this endpoint to get
+    10/20/30-minute bands — request all three at once.
+    """
+    params = {
+        "transportMode": transport_mode,
+        "origin": origin,
+        "range[type]": range_type,
+        # Comma-separated. One request, three polygons.
+        "range[values]": ",".join(str(v) for v in range_values),
+        "shape[maxPoints]": max_points,
+        "apiKey": API_KEY,
+    }
+    if departure_time:
+        # A 3am polygon applied to 5pm operations is a fiction.
+        params["departureTime"] = departure_time
+
+    backoff = 1.0
+    for _ in range(3):
+        resp = requests.get(HOST, params=params, timeout=30)
+        if resp.status_code == 403:
+            raise EntitlementError("Isoline Routing not entitled")
+        if resp.status_code == 429 or resp.status_code >= 500:
+            time.sleep(backoff); backoff *= 2; continue
+        resp.raise_for_status()
+        break
+    else:
+        raise RuntimeError("Isoline failed after retries")
+
+    body = resp.json()
+
+    # Failure is signalled in `notices`, not in the HTTP status.
+    if not body.get("isolines"):
+        raise NoIsolineError(str(body.get("notices", [])))
+
+    out = []
+    for iso in body["isolines"]:
+        # Each isoline has 1..n polygons. Multiple polygons occur when the
+        # reachable area is disconnected — islands, ferries, one-way systems.
+        rings = []
+        for poly in iso["polygons"]:
+            # Flexible Polyline, NOT Google's encoded polyline algorithm.
+            rings.append(decode(poly["outer"]))
+        out.append({
+            "range_type": iso["range"]["type"],
+            "range_value": iso["range"]["value"],
+            "rings": rings,          # list of [(lat, lng), ...]
+        })
+    return out
+
+
+if __name__ == "__main__":
+    # Three delivery bands, one request, computed at peak departure.
+    bands = isolines(
+        origin="41.8845,-87.6386",
+        range_values=[600, 1200, 1800],   # 10, 20, 30 minutes
+        range_type="time",
+        departure_time="2026-07-15T17:30:00",
+    )
+    for b in bands:
+        n = sum(len(r) for r in b["rings"])
+        print(f"{b['range_value']}s band: {len(b['rings'])} polygon(s), {n} vertices")
+        # Next: simplify, then INSERT into PostGIS. Never call this at request time.
+```
+
+```javascript Node.js
+import { decode } from "@here/flexpolyline";
+
+const HOST = "https://isoline.router.hereapi.com/v8/isolines";
+const API_KEY = process.env.HERE_API_KEY;
+
+class EntitlementError extends Error {}
+class NoIsolineError extends Error {}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+export async function isolines(origin, rangeValues, {
+  rangeType = "time",
+  transportMode = "car",
+  departureTime,
+  maxPoints = 200,
+} = {}) {
+  const params = new URLSearchParams({
+    transportMode,
+    origin,
+    "range[type]": rangeType,
+    "range[values]": rangeValues.join(","),   // one call, many bands
+    "shape[maxPoints]": String(maxPoints),
+    apiKey: API_KEY,
+  });
+  if (departureTime) params.set("departureTime", departureTime);
+
+  let backoff = 1000, resp;
+  for (let i = 0; i < 3; i++) {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 30_000);
+    try { resp = await fetch(`${HOST}?${params}`, { signal: ctrl.signal }); }
+    finally { clearTimeout(t); }
+
+    if (resp.status === 403) throw new EntitlementError("Isoline not entitled");
+    if (resp.status === 429 || resp.status >= 500) {
+      await sleep(backoff + Math.random() * 250); backoff *= 2; continue;
+    }
+    if (!resp.ok) throw new Error(`HERE returned ${resp.status}`);
+    break;
+  }
+
+  const body = await resp.json();
+  if (!body.isolines?.length) throw new NoIsolineError(JSON.stringify(body.notices ?? []));
+
+  return body.isolines.map((iso) => ({
+    rangeType: iso.range.type,
+    rangeValue: iso.range.value,
+    rings: iso.polygons.map((p) => decode(p.outer).polyline),
+  }));
+}
+```
+
+```bash cURL
+# Three time bands in one request
+curl -gX GET 'https://isoline.router.hereapi.com/v8/isolines' \
+  --data-urlencode 'transportMode=car' \
+  --data-urlencode 'origin=41.8845,-87.6386' \
+  --data-urlencode 'range[type]=time' \
+  --data-urlencode 'range[values]=600,1200,1800' \
+  --data-urlencode 'shape[maxPoints]=200' \
+  --data-urlencode "apiKey=${HERE_API_KEY}" \
+  -G
+
+# Truck service area — smaller and differently shaped than a car isoline.
+# NOTE: vehicle[...] supersedes the deprecated truck[...] parameters.
+curl -gX GET 'https://isoline.router.hereapi.com/v8/isolines' \
+  --data-urlencode 'transportMode=truck' \
+  --data-urlencode 'origin=41.8845,-87.6386' \
+  --data-urlencode 'range[type]=time' \
+  --data-urlencode 'range[values]=1800' \
+  --data-urlencode 'vehicle[height]=410' \
+  --data-urlencode 'vehicle[grossWeight]=35000' \
+  --data-urlencode "apiKey=${HERE_API_KEY}" \
+  -G
+
+# EV consumption isoline — "everywhere reachable on this charge", in Wh
+curl -gX GET 'https://isoline.router.hereapi.com/v8/isolines' \
+  --data-urlencode 'transportMode=car' \
+  --data-urlencode 'origin=41.8845,-87.6386' \
+  --data-urlencode 'range[type]=consumption' \
+  --data-urlencode 'range[values]=20000' \
+  --data-urlencode "apiKey=${HERE_API_KEY}" \
+  -G
+```
+</CodeGroup>
+
+## Response walkthrough
+
+```json
+{
+  "departure": { "place": { "type": "place", "location": {...} } },
+  "isolines": [{
+    "range": { "type": "time", "value": 600 },
+    "polygons": [{ "outer": "BG..." }]
+  }]
+}
+```
+
+**`range[values]` units differ by `range[type]`:**
+
+| `range[type]` | Unit |
+|---|---|
+| `time` | seconds |
+| `distance` | metres |
+| `consumption` | Wh |
+
+**`polygons` is an array.** More than one means the reachable area is **disconnected** — separated by water, a ferry, or a one-way system. A `connections` list identifies which polygons connect and how. Do not assume one ring.
+
+**Geometry is Flexible Polyline.** Not Google's encoded polyline. Use [HERE's decoders](https://github.com/heremaps/flexible-polyline).
+
+**Failure returns `notices`:**
+
+```json
+{ "notices": [{ "title": "Isolines could not be calculated.", "code": "isolineCalculationFailed" }] }
+```
+
+## Common mistakes
+
+**Calling this at request time.** Materialize it.
+
+**Looping the endpoint for each band.** `range[values]=600,1200,1800` returns three polygons in one call.
+
+**Assuming one polygon per isoline.** Disconnected components exist.
+
+**Decoding with a Google polyline library.** Different algorithm.
+
+**Requesting `distance` when you meant `time`.** Both valid. One answers your business question.
+
+**Ignoring `departureTime`.** A 3am polygon is not your delivery zone at 6pm.
+
+**Using car mode for a truck service area.** Trucks cannot use every road in the polygon.
+
+**`shape[maxPoints]` below 100.** HERE enforces a minimum of 30 and recommends above 100. Quality degrades below that.
+
+**Assigning customers to stores by polygon membership.** Two stores' 20-minute polygons overlap. Assign by travel time from a matrix.
+
+## Production considerations
+
+**Compute once, store in PostGIS, query with `ST_Contains`.** A 400-store network with three bands is 1,200 calls *per quarter*. The cost is bounded by store count — a number you already know.
+
+**Simplify before storage.** The polygon was an approximation with a resolution parameter to begin with. Smaller geometry, faster containment queries, no accuracy you were entitled to.
+
+**Store multiple bands as separate rows.** Delivery pricing by band becomes a lookup.
+
+**Recompute on events, not on a timer.** New location, closed location, changed service promise, significant map release.
+
+**Version them.** When a customer disputes "you delivered here last month," you need to know which polygon was live.
+
+**From-origin ≠ to-destination.** "Which customers can we reach in 30 minutes" and "which customers can reach us" are different polygons where one-way streets exist. Ask the question you mean.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Catchment Area" href="/guides/catchment-area">
+    Range types, resolution, and why the polygon is an approximation.
+  </Card>
+  <Card title="Delivery Zones" href="/use-cases/delivery-zones">
+    The materialization pattern this entire example exists to enable.
+  </Card>
+  <Card title="Site Selection" href="/use-cases/site-selection">
+    Trade areas, cannibalization, and the overlap join.
+  </Card>
+  <Card title="Cost Optimization Patterns" href="/architecture/cost-optimization-patterns">
+    Pattern 3: precompute and materialize.
+  </Card>
+</CardGroup>
+
+## HERE documentation
+
+- [Isoline Routing v8 get started](https://docs.here.com/routing/docs/isoline-v8-get-started)
+- [Isoline response structure](https://www.here.com/docs/bundle/isoline-routing-api-developer-guide-v8/page/topics/isoline-response.html)
+- [Isoline v7 → v8 migration guide](https://developer.here.com/documentation/isoline-routing-api/migration_guide/index.html)
+- [Flexible Polyline decoders](https://github.com/heremaps/flexible-polyline)
+
+---
+
+Need production HERE API keys or implementation support?
+
+Placematic is an official HERE Technologies reseller and implementation partner. [Talk to us](https://placematic.com/contact/).

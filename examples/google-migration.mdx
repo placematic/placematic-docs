@@ -1,0 +1,336 @@
+---
+title: "Migrating One Endpoint from Google Maps"
+description: "A real geocoding migration, request by request. The provider facade, the semantic differences that return 200, and shadow comparison against ground truth."
+---
+
+# Migrating One Endpoint from Google Maps
+
+**Problem:** We geocode 400,000 addresses a month against Google. Move it to HERE without breaking anything.
+
+<Warning>
+**Optimize on Google first.** Cache, deduplicate, debounce. Re-measure.
+
+A meaningful share of teams find the bill halves without a vendor change. What remains is your real migration case — and now you have a clean baseline.
+
+Migrating an uncached implementation moves the waste to a cheaper meter. You will save money and still be wrong.
+</Warning>
+
+## Why geocoding first
+
+Six surfaces, migrated in order. Never two at once.
+
+| Order | Surface | Why here |
+|---|---|---|
+| **1** | **Batch geocoding** | No UI. If it breaks, you fix a nightly job |
+| 2 | Telematics reverse geocoding | Backend, high volume |
+| 3 | Matrix | Where the routing loops were |
+| 4 | Routing | Now user-visible. Quality gate required |
+| 5 | Autocomplete | User-facing. Be honest about quality |
+| 6 | Rendering | Most visible. Tile aesthetics differ |
+
+Smallest blast radius, largest saving. Start here.
+
+## Step 1 — the facade, shipped against Google
+
+Introduce it **before** HERE exists in the codebase.
+
+```python
+from dataclasses import dataclass
+from typing import Protocol
+
+
+@dataclass(frozen=True)
+class GeocodeResult:
+    """
+    OUR type. Not Google's response shape. Not HERE's.
+
+    Design the interface from HERE's capability set, not Google's.
+    An interface derived from Google has no field for `access` or
+    `field_score`. When you add HERE, that data has nowhere to live
+    and gets silently dropped.
+    """
+    lat: float
+    lng: float
+    access_lat: float | None      # road-network entry point. Google has none.
+    access_lng: float | None
+    normalized_address: str
+    confidence: float             # 0..1
+    field_confidence: dict        # per-component. Google has no equivalent.
+    is_rooftop: bool
+    provider: str                 # for shadow comparison
+
+
+class GeocodeProvider(Protocol):
+    def geocode(self, address: str, country: str | None) -> GeocodeResult | None: ...
+```
+
+<Warning>
+**This is where migrations fail.** If your Google implementation had no notion of a road-network access point, an interface derived from it has no field for one.
+
+Design from the richer capability set.
+</Warning>
+
+## Step 2 — the two adapters, side by side
+
+<CodeGroup>
+```python Google adapter
+import requests
+
+GOOGLE = "https://maps.googleapis.com/maps/api/geocode/json"
+
+
+class GoogleGeocoder:
+    def geocode(self, address: str, country: str | None = None):
+        params = {"address": address, "key": self.key}
+        if country:
+            params["components"] = f"country:{country}"
+
+        r = requests.get(GOOGLE, params=params, timeout=10)
+        r.raise_for_status()
+        body = r.json()
+
+        # Google signals failure in `status`, not HTTP.
+        if body["status"] == "ZERO_RESULTS":
+            return None
+        if body["status"] != "OK":
+            raise RuntimeError(body["status"])
+
+        res = body["results"][0]
+        loc = res["geometry"]["location"]
+        lt = res["geometry"]["location_type"]
+
+        return GeocodeResult(
+            lat=loc["lat"], lng=loc["lng"],
+            access_lat=None, access_lng=None,       # no equivalent
+            normalized_address=res["formatted_address"],
+            confidence=0.0 if res.get("partial_match") else 1.0,   # coarse
+            field_confidence={},                    # no equivalent
+            is_rooftop=(lt == "ROOFTOP"),
+            provider="google",
+        )
+```
+
+```python HERE adapter
+import requests
+
+HERE = "https://geocode.search.hereapi.com/v1/geocode"
+
+
+class HereGeocoder:
+    def geocode(self, address: str, country: str | None = None):
+        params = {"q": address, "limit": 1, "apiKey": self.key}
+        if country:
+            params["in"] = f"countryCode:{country}"   # ISO 3166-1 ALPHA-3
+
+        r = requests.get(HERE, params=params, timeout=10)
+
+        # 403 = valid key, MISSING ENTITLEMENT. Never retry.
+        if r.status_code == 403:
+            raise EntitlementError("Geocoding not entitled")
+        r.raise_for_status()
+
+        items = r.json().get("items", [])
+        if not items:
+            return None                  # empty items = no match. Not an error.
+
+        it = items[0]
+        sc = it.get("scoring", {})
+        acc = (it.get("access") or [None])[0]
+
+        return GeocodeResult(
+            lat=it["position"]["lat"], lng=it["position"]["lng"],
+            access_lat=acc["lat"] if acc else None,
+            access_lng=acc["lng"] if acc else None,
+            normalized_address=it["address"]["label"],
+            confidence=sc.get("queryScore", 0.0),
+            field_confidence=sc.get("fieldScore", {}),   # ← richer than Google
+            is_rooftop=(it.get("houseNumberType") == "PA"),
+            provider="here",
+        )
+```
+</CodeGroup>
+
+## Step 3 — request mapping
+
+| Google | HERE | Note |
+|---|---|---|
+| `address=` | `q=` | Free text |
+| — | `qq=street=…;city=…` | Structured. **Never send `q` and `qq` together** |
+| `components=country:US` | `in=countryCode:USA` | **alpha-2 → alpha-3** |
+| `key=` | `apiKey=` | |
+| `status: "ZERO_RESULTS"` | `items: []` | Different failure signal |
+| `location_type: ROOFTOP` | `houseNumberType: "PA"` | `interpolated` is the other value |
+| `partial_match` | `queryScore` + `fieldScore` | Richer. **Rebuild your quality logic** |
+| `geometry.location` | `position` | The address |
+| — | `access` | **Road-network entry point. Route to this** |
+| Geocoding API (batch) | `batch.search.hereapi.com/v7/batch/jobs` | Job lifecycle, not a bulk endpoint |
+
+## Step 4 — semantic differences that return `200`
+
+These are the ones that survive code review.
+
+**Failure is signalled differently.**
+Google returns HTTP `200` with `status: "ZERO_RESULTS"`. HERE returns HTTP `200` with `items: []`. Neither raises.
+
+**Country codes.**
+Google: ISO 3166-1 **alpha-2** (`US`). HERE: **alpha-3** (`USA`). A naive port silently filters to nothing.
+
+**Two coordinates per result.**
+HERE returns `position` (the address) *and* `access` (where a vehicle arrives). Google returns one. **Route to `access`.** Routing to `position` may target the geometric centre of a building, or a point separated from the road by a car park.
+
+**Confidence is not comparable.**
+
+<Warning>
+`queryScore: 0.9` does not mean what `partial_match: false` means.
+
+**Do not port your threshold.** Recalibrate against your own ground truth before cutover. Plot correctness against `queryScore` and find your own knee.
+</Warning>
+
+**`fieldScore` has no Google equivalent.**
+`queryScore: 0.95` with `fieldScore.houseNumber: 0.4` matched the street confidently and the house number badly. That is a failed delivery. `fieldScore.postalCode: 0.8` is not. A single aggregate number cannot express this.
+
+**Batch is a job lifecycle.**
+Create → start → poll → fetch errors → fetch results → delete. `429` on start = concurrency limit, queue it. `204` on `/errors` = **zero errors**, not a failure. `404` on `/result` = not ready yet.
+
+**`403` ≠ `401`.**
+`401` is a bad key. `403` is a valid key without entitlement. Retrying `403` is patient, well-engineered, and permanently futile.
+
+## Step 5 — shadow write
+
+```python
+import asyncio
+
+
+async def geocode_with_shadow(address: str) -> GeocodeResult:
+    """
+    Primary serves the user. Shadow result is DISCARDED.
+
+    If the shadow can affect production latency, you have built a second
+    point of failure to test the first.
+    """
+    primary = PROVIDERS[flags.get("geocode_provider")]     # per ENDPOINT
+    result = primary.geocode(address)
+
+    if flags.get("geocode_shadow_enabled"):
+        asyncio.create_task(_shadow(address, result))      # fire and forget
+
+    return result
+
+
+async def _shadow(address, primary_result):
+    try:
+        shadow = SHADOW_PROVIDER.geocode(address)
+        await log_comparison(address, primary_result, shadow)
+    except Exception:
+        pass    # a shadow failure is not a production failure
+```
+
+<Warning>
+**The flag is per endpoint, not per user.**
+
+A percentage rollout across a geocoder gives you two populations with different data quality and no way to attribute an incident. A rollback should be one flag and one surface.
+</Warning>
+
+## Step 6 — compare against ground truth, not against each other
+
+Two wrong answers can agree.
+
+```sql
+-- 100 addresses with SURVEYED coordinates. Site visits, or driver-confirmed
+-- delivery GPS. Not a curated list. Include rural, apartments, and
+-- addresses that have previously failed delivery.
+
+SELECT
+  provider,
+  count(*)                                   AS matched,
+  avg((is_rooftop)::int)                     AS rooftop_fraction,
+  percentile_cont(0.50) WITHIN GROUP (ORDER BY error_m) AS p50_error_m,
+  percentile_cont(0.90) WITHIN GROUP (ORDER BY error_m) AS p90_error_m,
+  percentile_cont(0.99) WITHIN GROUP (ORDER BY error_m) AS p99_error_m
+FROM comparison
+JOIN ground_truth USING (address)
+GROUP BY provider;
+```
+
+<Tip>
+**Report the distribution, not the mean.** p99 is where failed deliveries live.
+
+And measure **confidence calibration**: among results the platform scored above 0.9, what fraction were actually correct? A geocoder with a *lower* match rate and well-calibrated confidence is more useful — it lets you route uncertain records to an exception queue. Poorly calibrated confidence silently corrupts your database.
+</Tip>
+
+## Step 7 — rollback, tested before you need it
+
+```python
+FLAGS = {
+    "geocode_provider": "google",    # flip this. One line. No deploy.
+    "geocode_shadow_enabled": True,
+}
+```
+
+<Warning>
+**A migration you cannot reverse is not a migration. It is a bet.**
+
+Flip it in production, on a Tuesday, deliberately. Verify traffic moves. Flip it back. An untested rollback is a hypothesis.
+</Warning>
+
+**Store provider-specific IDs in nullable side columns.** If cutting over wrote a `here_id` onto a core record, rollback must not require unwinding it.
+
+**Keep both live for one full business cycle.** Two invoices for a month is cheaper than one incident. You are not testing the happy path — you are waiting for the edge case that only occurs on the last Friday of the month.
+
+## Common mistakes
+
+**Migrating before optimizing.**
+
+**Designing the facade from Google's capabilities.** Truck constraints and `access` points have nowhere to live.
+
+**Porting the confidence threshold.**
+
+**Country code alpha-2 → alpha-3.** Silent empty results.
+
+**Comparing providers against each other.**
+
+**Comparing means, not distributions.**
+
+**Shadow calls on the response path.**
+
+**Percentage rollout by user.**
+
+**Migrating two surfaces at once.** Ambiguous root cause on the first incident.
+
+**Untested rollback.**
+
+**Retrying `403`.**
+
+**Treating Batch API as a bulk endpoint.**
+
+**Revoking the old keys before a full business cycle completes.**
+
+**Presenting savings without migration engineering cost.** Your CFO will ask.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Google Migration Architecture" href="/architecture/google-migration-architecture">
+    Dual-running, shadow comparison, rollback mechanics.
+  </Card>
+  <Card title="Reducing Google Maps Costs" href="/use-cases/reducing-google-maps-costs">
+    Optimize first. You may not need to migrate.
+  </Card>
+  <Card title="HERE Geocoding vs Google Maps" href="/comparisons/here-geocoding-vs-google-maps">
+    Where each genuinely wins, and how to benchmark.
+  </Card>
+  <Card title="Batch Address Cleanup" href="/examples/batch-address-cleanup">
+    The one-million-address backfill.
+  </Card>
+</CardGroup>
+
+## HERE documentation
+
+- [Geocode endpoint](https://docs.here.com/geocoding-and-search/docs/geocode)
+- [Batch API v7](https://docs.here.com/geocoding-and-search/docs/geocoding)
+
+---
+
+Need production HERE API keys or implementation support?
+
+Placematic is an official HERE Technologies reseller and implementation partner. [Talk to us](https://placematic.com/contact/).

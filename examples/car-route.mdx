@@ -1,0 +1,259 @@
+---
+title: "Calculate a Car Route"
+description: "Passenger vehicle routing with HERE Routing v8 — departure time, explicit return fields, and the 200 response that means no route was found."
+---
+
+# Calculate a Car Route
+
+**Problem:** I need a driving route between two points, with a duration I can show a user.
+
+## Prerequisites
+
+- A HERE API key with Routing entitlement
+- `export HERE_API_KEY="..."`
+
+## The code
+
+<CodeGroup>
+```python Python
+import os
+import time
+import requests
+
+HOST = "https://router.hereapi.com/v8/routes"
+API_KEY = os.environ["HERE_API_KEY"]
+
+
+class EntitlementError(Exception):
+    """403 — valid key, missing entitlement. Never retry."""
+
+
+class NoRouteError(Exception):
+    """HTTP 200, empty routes. A legitimate outcome."""
+
+
+def car_route(
+    origin: str,          # "lat,lng"
+    destination: str,     # "lat,lng"
+    departure_time: str | None = None,  # ISO 8601, or None for now
+    retries: int = 3,
+) -> dict:
+    """
+    Calculate a passenger-car route.
+
+    `return` is set explicitly. Requesting `polyline,actions,instructions`
+    when you consume only a duration inflates the payload by orders of magnitude.
+    """
+    params = {
+        "transportMode": "car",
+        "origin": origin,               # lat,lng — NOT lng,lat
+        "destination": destination,
+        "return": "summary,polyline",   # Explicit. Always.
+        "apiKey": API_KEY,
+    }
+    if departure_time:
+        # Traffic is evaluated at this time, not at request time.
+        # A route computed at 2pm for a 6pm departure inherits 2pm traffic
+        # unless you say otherwise.
+        params["departureTime"] = departure_time
+
+    backoff = 1.0
+    for _ in range(retries):
+        resp = requests.get(HOST, params=params, timeout=15)
+
+        if resp.status_code == 403:
+            raise EntitlementError("Routing not entitled for this key")
+        if resp.status_code in (429,) or resp.status_code >= 500:
+            time.sleep(backoff)
+            backoff *= 2
+            continue
+
+        resp.raise_for_status()
+        break
+    else:
+        raise RuntimeError("Routing failed after retries")
+
+    body = resp.json()
+
+    # CRITICAL: HTTP 200 does not mean a route was found.
+    routes = body.get("routes", [])
+    if not routes:
+        notices = body.get("notice", [])
+        raise NoRouteError(f"No route: {notices}")
+
+    section = routes[0]["sections"][0]
+    return {
+        "duration_s": section["summary"]["duration"],
+        "length_m": section["summary"]["length"],
+        "polyline": section.get("polyline"),
+    }
+
+
+if __name__ == "__main__":
+    try:
+        r = car_route("41.8845,-87.6386", "41.9028,-87.6317")
+        print(f"{r['duration_s']}s over {r['length_m']}m")
+    except NoRouteError as e:
+        print(f"Unroutable: {e}")   # Do NOT retry
+    except EntitlementError as e:
+        print(f"Licensing: {e}")    # Do NOT retry
+```
+
+```javascript Node.js
+const HOST = "https://router.hereapi.com/v8/routes";
+const API_KEY = process.env.HERE_API_KEY;
+
+class EntitlementError extends Error {}
+class NoRouteError extends Error {}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+export async function carRoute(origin, destination, { departureTime, retries = 3 } = {}) {
+  const params = new URLSearchParams({
+    transportMode: "car",
+    origin,                        // "lat,lng"
+    destination,
+    return: "summary,polyline",    // Explicit
+    apiKey: API_KEY,
+  });
+  if (departureTime) params.set("departureTime", departureTime);
+
+  let backoff = 1000;
+  let resp;
+
+  for (let i = 0; i < retries; i++) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 15_000);
+    try {
+      resp = await fetch(`${HOST}?${params}`, { signal: ctrl.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+
+    if (resp.status === 403) throw new EntitlementError("Routing not entitled");
+    if (resp.status === 429 || resp.status >= 500) {
+      await sleep(backoff + Math.random() * 250);
+      backoff *= 2;
+      continue;
+    }
+    if (!resp.ok) throw new Error(`HERE returned ${resp.status}`);
+    break;
+  }
+
+  const body = await resp.json();
+
+  // HTTP 200 with an empty routes array is a valid response.
+  if (!body.routes?.length) {
+    throw new NoRouteError(JSON.stringify(body.notice ?? []));
+  }
+
+  const { summary, polyline } = body.routes[0].sections[0];
+  return { durationS: summary.duration, lengthM: summary.length, polyline };
+}
+```
+
+```bash cURL
+curl -gX GET 'https://router.hereapi.com/v8/routes' \
+  --data-urlencode 'transportMode=car' \
+  --data-urlencode 'origin=41.8845,-87.6386' \
+  --data-urlencode 'destination=41.9028,-87.6317' \
+  --data-urlencode 'return=summary,polyline' \
+  --data-urlencode "apiKey=${HERE_API_KEY}" \
+  -G
+```
+</CodeGroup>
+
+## Response walkthrough
+
+```json
+{
+  "routes": [{
+    "id": "e9942278-...",
+    "sections": [{
+      "id": "faeea7a2-...",
+      "type": "vehicle",
+      "summary": { "duration": 412, "length": 3820 },
+      "polyline": "BG..."
+    }]
+  }]
+}
+```
+
+`duration` is seconds. `length` is metres. `polyline` is HERE's flexible polyline encoding — decode it with HERE's published algorithm, not Google's.
+
+**When no route exists:**
+
+```json
+{
+  "notice": [{
+    "title": "Route calculation failed: Couldn't find a route.",
+    "code": "routeCalculationFailed"
+  }],
+  "routes": []
+}
+```
+
+<Warning>
+**HTTP status is `200`.** Checking `resp.ok` swallows this entirely. Always check `routes.length` and read `notice`.
+
+The classic trigger is an ocean between origin and destination. In truck routing, it means no *legal* path exists — which is correct, and must not be retried with relaxed constraints.
+</Warning>
+
+## Common mistakes
+
+**Reversing coordinate order.** HERE takes `lat,lng`. GeoJSON is `lng,lat`. This bites once, and it is always at 2am.
+
+**Treating `200` as success.**
+
+**Omitting `return`.** You get a default shape, which may change. Be explicit.
+
+**Requesting `instructions` for a backend ETA.** Nothing consumes them.
+
+**Letting `departureTime` default when the departure is in the future.** A route computed at 2pm for a 6pm departure inherits 2pm traffic.
+
+**Unencoded waypoint attributes.** Values like `nameHint` may contain `&` and `!`, which collide with URL control characters.
+
+**Retrying `403`.** Permanently futile.
+
+**Prototyping on `car` and shipping `truck`.** Different engine, different results. See [Truck Route](/examples/truck-route).
+
+## Production considerations
+
+**Cache geometry and ETAs separately.** The path between two fixed points is stable for hours. The duration is not. One TTL for both serves stale arrival times to drivers.
+
+**Do not re-route on every GPS ping to refresh an ETA.** Recompute the remaining duration from the polyline and current position — arithmetic on data you already hold. Call routing when the driver deviates. See [ETA Calculation](/use-cases/eta-calculation).
+
+**If you are calling this in a loop**, stop. You are building a cost table and want [Distance Matrix](/examples/distance-matrix). A 20×500 problem is 10,000 routing calls or one matrix call.
+
+**Set a timeout.** Routes with many waypoints and traffic enabled are not instantaneous.
+
+**Some transport modes are beta.** `bicycle`, `bus`, and `privateBus` carry beta status with limited functionality. Verify before shipping.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Routing" href="/guides/routing">
+    Transport modes, `return` fields, and error semantics.
+  </Card>
+  <Card title="Routing vs Matrix" href="/architecture/choosing-routing-vs-matrix">
+    The loop that costs orders of magnitude.
+  </Card>
+  <Card title="Truck Route" href="/examples/truck-route">
+    Same endpoint. Entirely different correctness requirements.
+  </Card>
+  <Card title="ETA Calculation" href="/use-cases/eta-calculation">
+    Why a routing duration is not a delivery promise.
+  </Card>
+</CardGroup>
+
+## HERE documentation
+
+- [Routing API v8 get started](https://www.here.com/docs/bundle/routing-api-developer-guide-v8/page/get-started.html)
+- [Routing API v8 reference](https://www.here.com/docs/bundle/routing-api-v8-api-reference/page/index.html)
+- [Transport modes](https://www.here.com/docs/bundle/routing-api-developer-guide-v8/page/topics/transport-modes.html)
+
+---
+
+Need production HERE API keys or implementation support?
+
+Placematic is an official HERE Technologies reseller and implementation partner. [Talk to us](https://placematic.com/contact/).

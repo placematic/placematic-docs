@@ -1,0 +1,315 @@
+---
+title: "Traffic Flow"
+description: "Real-time traffic flow and incidents with HERE Traffic API v7 — geospatial filters, jam factor, and why polling a bounding box is not a live map."
+---
+
+# Traffic Flow
+
+**Problem:** I need current speed and congestion on the roads in an area.
+
+## Prerequisites
+
+- A HERE API key with Traffic entitlement
+- `export HERE_API_KEY="..."`
+
+<Info>
+**Traffic v7 is a data API, not a tile API.** It returns JSON describing road segments, not images.
+
+Two parameters are mandatory on every request: **`in`** (geospatial filter) and **`locationReferencing`**. Omitting `locationReferencing` returns `E608051`.
+</Info>
+
+## The code
+
+<CodeGroup>
+```python Python
+import os
+import time
+import requests
+
+BASE = "https://data.traffic.hereapi.com/v7"
+API_KEY = os.environ["HERE_API_KEY"]
+
+
+class EntitlementError(Exception): ...
+
+
+def traffic_flow(
+    center_lat: float,
+    center_lng: float,
+    radius_m: int = 2000,
+    min_jam_factor: float | None = None,
+    location_referencing: str = "shape",   # shape | tmc | olr | none
+) -> list[dict]:
+    """
+    Real-time flow for a circular area.
+
+    `locationReferencing` is MANDATORY. Request ONLY the scheme you can
+    actually interpret — asking for `shape` when you only use `olr` returns
+    geometry you will parse and discard.
+
+    Use `none` if you only want jam factors and do not need geometry at all.
+    """
+    params = {
+        "in": f"circle:{center_lat},{center_lng};r={radius_m}",
+        "locationReferencing": location_referencing,
+        "apiKey": API_KEY,
+    }
+    if min_jam_factor is not None:
+        # Server-side filter. Do NOT fetch everything and filter locally.
+        params["minJamFactor"] = min_jam_factor
+
+    backoff = 1.0
+    for _ in range(3):
+        resp = requests.get(f"{BASE}/flow", params=params, timeout=15)
+        if resp.status_code == 403:
+            raise EntitlementError("Traffic not entitled")
+        if resp.status_code == 429 or resp.status_code >= 500:
+            time.sleep(backoff); backoff *= 2; continue
+        resp.raise_for_status()
+        break
+    else:
+        raise RuntimeError("Traffic flow failed after retries")
+
+    out = []
+    for item in resp.json().get("results", []):
+        flow = item["currentFlow"]
+        out.append({
+            "street": item["location"].get("description"),
+            "length_m": item["location"]["length"],
+            "speed_mps": flow.get("speed"),
+            "free_flow_mps": flow.get("freeFlow"),
+            # 0.0 = free flow. 10.0 = road closed / standstill.
+            "jam_factor": flow.get("jamFactor"),
+            "traversability": flow.get("traversability"),
+        })
+    return out
+
+
+def traffic_incidents(bbox: str, lang: str = "en-US") -> list[dict]:
+    """
+    Incidents for a bounding box. `bbox:west,south,east,north`
+
+    Flow signals closures via jamFactor. For closures specifically,
+    HERE recommends Incidents, not Flow.
+    """
+    resp = requests.get(
+        f"{BASE}/incidents",
+        params={
+            "in": f"bbox:{bbox}",
+            "locationReferencing": "shape",
+            "lang": lang,   # descriptions default to the country's language
+            "apiKey": API_KEY,
+        },
+        timeout=15,
+    )
+    if resp.status_code == 403:
+        raise EntitlementError("Traffic not entitled")
+    resp.raise_for_status()
+
+    return [
+        {
+            "id": r["incidentDetails"]["id"],
+            "type": r["incidentDetails"]["type"],
+            "criticality": r["incidentDetails"]["criticality"],
+            "road_closed": r["incidentDetails"]["roadClosed"],
+            "start": r["incidentDetails"]["startTime"],
+            "end": r["incidentDetails"]["endTime"],
+            "description": r["incidentDetails"].get("description", {}).get("value"),
+        }
+        for r in resp.json().get("results", [])
+    ]
+
+
+if __name__ == "__main__":
+    # Only segments with meaningful congestion. Filter server-side.
+    jams = traffic_flow(51.50643, -0.12719, radius_m=1000, min_jam_factor=4.0)
+    for j in sorted(jams, key=lambda x: -(x["jam_factor"] or 0))[:5]:
+        print(f"{j['street']}: jamFactor {j['jam_factor']}")
+```
+
+```javascript Node.js
+const BASE = "https://data.traffic.hereapi.com/v7";
+const API_KEY = process.env.HERE_API_KEY;
+
+class EntitlementError extends Error {}
+
+export async function trafficFlow(lat, lng, {
+  radiusM = 2000,
+  minJamFactor,
+  locationReferencing = "shape",   // mandatory. use "none" if you skip geometry
+} = {}) {
+  const params = new URLSearchParams({
+    in: `circle:${lat},${lng};r=${radiusM}`,
+    locationReferencing,
+    apiKey: API_KEY,
+  });
+  if (minJamFactor != null) params.set("minJamFactor", String(minJamFactor));
+
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 15_000);
+  let resp;
+  try { resp = await fetch(`${BASE}/flow?${params}`, { signal: ctrl.signal }); }
+  finally { clearTimeout(t); }
+
+  if (resp.status === 403) throw new EntitlementError("Traffic not entitled");
+  if (!resp.ok) throw new Error(`HERE returned ${resp.status}`);
+
+  const { results = [] } = await resp.json();
+  return results.map((item) => ({
+    street: item.location.description,
+    lengthM: item.location.length,
+    speedMps: item.currentFlow.speed,
+    freeFlowMps: item.currentFlow.freeFlow,
+    jamFactor: item.currentFlow.jamFactor,   // 0 free-flow … 10 standstill
+    traversability: item.currentFlow.traversability,
+  }));
+}
+```
+
+```bash cURL
+# Flow in a 1 km circle. API key auth.
+curl -G 'https://data.traffic.hereapi.com/v7/flow' \
+  --data-urlencode 'in=circle:51.50643,-0.12719;r=1000' \
+  --data-urlencode 'locationReferencing=shape' \
+  --data-urlencode "apiKey=${HERE_API_KEY}"
+
+# Incidents in a bounding box. OAuth Bearer also supported.
+curl -H "Authorization: Bearer ${HERE_TOKEN}" \
+  'https://data.traffic.hereapi.com/v7/incidents?in=bbox:13.400,52.500,13.405,52.505&locationReferencing=olr'
+
+# Only significant congestion. Filter server-side, not in your app.
+curl -G 'https://data.traffic.hereapi.com/v7/flow' \
+  --data-urlencode 'in=circle:51.50643,-0.12719;r=1000' \
+  --data-urlencode 'locationReferencing=none' \
+  --data-urlencode 'minJamFactor=7' \
+  --data-urlencode "apiKey=${HERE_API_KEY}"
+```
+</CodeGroup>
+
+## Geospatial filters
+
+`in` accepts four formats. Choose the smallest that covers your question.
+
+| Format | Example |
+|---|---|
+| Circle | `circle:52.50811,13.47853;r=2000` |
+| Bounding box | `bbox:13.088,52.338,13.761,52.675` |
+| Corridor | `corridor:{flexiblePolyline};r=50` |
+| Tile | `tile:377894440` |
+
+<Tip>
+**`corridor:` is the one most teams miss.** It accepts a Flexible Polyline plus a radius.
+
+For "what is the traffic on this route right now," a corridor around the route polyline is dramatically cheaper and more relevant than a bounding box containing the whole city.
+</Tip>
+
+## Response walkthrough
+
+**Flow:**
+
+```json
+{ "results": [{
+    "location": { "description": "Invalidenstraße", "length": 279.0, "shape": {...} },
+    "currentFlow": {
+      "speed": 8.33, "freeFlow": 13.89,
+      "jamFactor": 6.4, "confidence": 0.95,
+      "traversability": "open"
+    }
+}]}
+```
+
+**`jamFactor`** runs 0.0 (free flow) to 10.0 (standstill or closed). It is the field you filter and alert on.
+
+**`speed` and `freeFlow` are metres per second.** Not km/h.
+
+<Warning>
+Flow indicates closed roads via `jamFactor`. **For closures specifically, HERE recommends the Incidents endpoint**, not Flow. If road closures drive a routing decision in your system, query `/v7/incidents`.
+</Warning>
+
+**Incidents:**
+
+```json
+{ "results": [{
+    "location": { "length": 9310.0, "olr": "CCkBEAAlJAUSUiRTrwAJ..." },
+    "incidentDetails": {
+      "id": "3195531507295233286",
+      "startTime": "2019-12-03T23:00:00Z",
+      "endTime": "2023-03-12T22:59:59Z",
+      "roadClosed": true, "criticality": "minor", "type": "other",
+      "description": { "value": "...", "language": "de" }
+    }
+}]}
+```
+
+Descriptions default to the incident country's language. Pass `lang=en-US` for English.
+
+## `locationReferencing`
+
+| Value | Returns | Use when |
+|---|---|---|
+| `shape` | WGS84 coordinates | You render on a map |
+| `tmc` | Traffic Message Channel codes | Legacy broadcast integration |
+| `olr` | OpenLR references | Cross-map-vendor segment matching |
+| `none` | No location at all | You only need jam factors |
+
+**Request only what you can interpret.** Asking for `shape` when you use `olr` returns geometry you parse and discard.
+
+## Common mistakes
+
+**Omitting `locationReferencing`.** `E608051`. It is mandatory.
+
+**Filtering jam factor client-side.** Use `minJamFactor` / `maxJamFactor`.
+
+**Treating `speed` as km/h.** Metres per second.
+
+**Polling a city-wide bounding box for a live map.** Use `corridor:` around your route, or `tile:` for a viewport.
+
+**Using Flow to detect closures.** Use Incidents.
+
+**Requesting `shape` when you do not render geometry.** Use `none`.
+
+**Assuming Traffic replaces `departureTime` on a routing call.** The Routing API applies traffic internally. This API is for *displaying* or *analysing* traffic, not for making routes traffic-aware.
+
+## Production considerations
+
+**Do not poll on map pan.** Every drag becomes a request. Debounce, and cache per tile.
+
+**Corridor filters for route-relevant traffic.** Bounding boxes return everything.
+
+**Cache with a short TTL.** Traffic is near-real-time; it is not per-second.
+
+**This is a separate meter.** Traffic bills independently of routing and tiles. Traffic overlays left permanently enabled are a cost decision, not a styling one.
+
+**`functionalClasses` narrows to major roads.** A dispatcher watching highways does not need residential streets.
+
+**`E608xxx` codes are malformed-query errors.** Read the message; do not retry.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Maps" href="/guides/maps">
+    Traffic as a rendering layer, and why it bills separately.
+  </Card>
+  <Card title="ETA Calculation" href="/use-cases/eta-calculation">
+    `departureTime` on a routing call, not a Traffic query.
+  </Card>
+  <Card title="Fleet Routing" href="/use-cases/fleet-routing">
+    Where traffic enters dispatch decisions.
+  </Card>
+  <Card title="Cost Optimization Patterns" href="/architecture/cost-optimization-patterns">
+    Pattern 1: the unit of work. Do not poll per pan.
+  </Card>
+</CardGroup>
+
+## HERE documentation
+
+- [Traffic API v7 introduction](https://docs.here.com/traffic-api/docs/introduction-to-here-traffic-api-v7)
+- [Get started](https://docs.here.com/traffic-api/docs/send-request-readme)
+- [Flow concepts](https://docs.here.com/traffic-api/docs/flow)
+- [Traffic v7 API reference](https://www.here.com/docs/bundle/traffic-api-v7-api-reference/page/index.html)
+
+---
+
+Need production HERE API keys or implementation support?
+
+Placematic is an official HERE Technologies reseller and implementation partner. [Talk to us](https://placematic.com/contact/).
