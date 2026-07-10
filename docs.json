@@ -174,11 +174,11 @@
       },
       {
         "tab": "FAQ",
-        "icon": "message-circle",
+        "icon": "book-search",
         "groups": [
           {
             "group": "FAQ",
-            "icon": "message-circle",
+            "icon": "book-search",
             "pages": [
               "faq/index",
               "faq/what-is-here-location-services",
