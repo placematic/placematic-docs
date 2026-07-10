@@ -111,9 +111,7 @@
           "comparisons/here-vs-google-maps",
           "comparisons/here-vs-mapbox",
           "comparisons/here-vs-azure-maps",
-          "comparisons/here-vs-tomtom",
-          
-          "comparisons/google-maps-migration"
+          "comparisons/here-vs-tomtom"
         ]
       },
       {
