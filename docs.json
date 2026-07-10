@@ -104,6 +104,10 @@
       {
         "group": "Comparisons",
         "pages": [
+          "comparisons/index",
+          "comparisons/here-routing-vs-google-maps",
+          "comparisons/here-vs-openstreetmap",
+
           "comparisons/here-vs-google-maps",
           "comparisons/here-vs-mapbox",
           "comparisons/here-vs-tomtom",

@@ -74,16 +74,16 @@ flowchart TB
 **[Truck Routing](/guides/truck-routing)** — the only relevant API. **Why:** HERE's Routing v8 exposes `shippedHazardousGoods` as a parameter with class values, alongside tunnel category and the physical vehicle constraints.
 
 <Info>
-`shippedHazardousGoods` is a **classed enum**, not a boolean. HERE's specification includes class values such as `B`, `C`, `D`, and `E`, and which classes are supported depends on transport mode. Tunnel category is a separate parameter.
-
-Do not map an internal `is_hazmat` boolean onto this. Read the class definitions in the [Routing API v8 reference](https://www.here.com/docs/bundle/routing-api-v8-api-reference/page/index.html) and map your material classifications deliberately.
+`shippedHazardousGoods` is an **array** of cargo type values, not a boolean and not a single class. HERE's specification defines: `explosive`, `gas`, `flammable`, `combustible`, `organic`, `poison`, `radioactive`, `corrosive`, `poisonousInhalation`, `harmfulToWater`, `other`.
+`tunnelCategory` is a **separate parameter**, taking the ADR tunnel restriction code `B`, `C`, `D` or `E`. It governs which tunnels the vehicle may enter. It is not a hazmat class.
+A single shipment may carry several cargo types and one tunnel category. Do not map an internal `is_hazmat` boolean onto either. Read the definitions in the [Routing API v8 reference](https://www.here.com/docs/bundle/routing-api-v8-api-reference/page/index.html) and map your material classifications deliberately.
 </Info>
 
 **Physical constraints still apply.** Height in centimetres, `grossWeight` in kilograms, `axleCount` including trailers. A hazmat tanker is also a tall, heavy vehicle. Both constraint sets are required.
 
 **`category=lightTruck` is a legal exemption, not a physical one.** It exempts a vehicle from many restrictions written for normal trucks. Physical dimension and cargo restrictions still apply. It does not exempt a hazmat load from hazmat restrictions.
 
-**`weightLimit` is deprecated** in the current v8 specification in favour of `grossWeight`. If you are reading an older tutorial, you are reading a deprecated parameter.
+**`weightLimit` is deprecated** in the current v8 specification in favour of `grossWeight`. The entire `truck` object is also deprecated in favour of `vehicle`. If you are reading an older tutorial, you are reading deprecated parameters.
 
 ## Implementation flow
 
@@ -133,7 +133,9 @@ For matrices of hazmat-constrained travel times, [Matrix Routing](/guides/matrix
 
 **Setting `transportMode=truck` and omitting `shippedHazardousGoods`.** The engine is selected. The cargo is not declared.
 
-**Mapping an internal `is_hazmat` boolean onto a classed enum.** Read the class definitions.
+**Mapping an internal `is_hazmat` boolean onto `shippedHazardousGoods`**. It is an array of cargo types. Read the definitions.
+
+**Confusing `shippedHazardousGoods` with `tunnelCategory`**. Cargo type and tunnel restriction code are different parameters governing different things. Supplying one does not imply the other.
 
 **Using the deprecated `weightLimit`** instead of `grossWeight`.
 

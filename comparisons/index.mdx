@@ -1,0 +1,114 @@
+---
+title: "Comparisons"
+description: "Technical decision guides for teams evaluating HERE against Google Maps, Mapbox, TomTom, Azure Maps and self-hosted OSM stacks."
+---
+
+# Comparisons
+
+There is no best mapping platform. There are platforms that fit particular architectures, particular request mixes, and particular commercial constraints.
+
+These pages exist to help you determine which one you are.
+
+## How to use this section
+
+Each page answers a conditional question — *choose X when this is true, choose Y when that is true* — rather than declaring a winner. Where a difference is decisive we say so. Where it depends on your plan, region, or contract we say that instead.
+
+We work with HERE. Placematic is a HERE Gold Partner and reseller. That is a reason to read these pages carefully, not a reason to distrust them: a comparison that recommended HERE in every category would be useless to you and, ultimately, to us.
+
+<Info>
+These are technical decision guides. For commercial summaries, pricing overviews and lead-generation material, see the [Placematic comparison hub](https://placematic.com/compare/). The two serve different purposes and we do not duplicate one in the other.
+</Info>
+
+## What actually differentiates location platforms
+
+Five axes. Most evaluations look at one.
+
+**Data.** Road network geometry, truck attributes, traffic, POI coverage, address precision. This is where platforms genuinely differ and where the difference is hardest to test from a documentation page.
+
+**API capability.** Not whether an endpoint exists but whether it expresses the constraint you need. A truck routing API that cannot express axle weight per axle group is not a truck routing API for a market that regulates by axle group.
+
+**Architecture fit.** Batch versus real-time. Synchronous versus job-based. Whether the platform's primitives match your workload shape. This determines your call volume, and call volume determines your bill far more than the rate card does.
+
+**Commercial model.** Per-call, per-session, per-asset, per-transaction. Free bundles, volume tiers, contract stability. What is entitled on your plan versus what is documented as available on some plan.
+
+**Support and ownership.** Whether you operate the stack or someone else does. Whether there is a human to call when a route is wrong.
+
+<Warning>
+Rate cards are close across vendors at entry level. Your bill is determined by call mix, volume tier, whether you batched, and whether you cached — not by the headline per-1,000 price. Comparing rate cards teaches you very little.
+
+See [Cost Optimization Patterns](/architecture/cost-optimization-patterns).
+</Warning>
+
+## Why you must test with your own data
+
+Published accuracy figures are aggregate. Your addresses are not aggregate.
+
+A geocoder that resolves 97% of US urban addresses to rooftop may resolve 60% of your rural service-area addresses to a street centroid. A routing engine with excellent aggregate ETA accuracy may be systematically optimistic on the specific corridors your fleet drives at the specific hour it drives them.
+
+**Neither we nor any vendor can tell you which platform is more accurate for your data.** We can tell you how to find out.
+
+Every comparison page in this section ends with an evaluation plan: a representative route set, a representative address set, a production-like request mix, and a cost forecast built from your own call counts. Run it. The result will be more useful than any table on this site.
+
+## The pages
+
+<CardGroup cols={2}>
+  <Card title="HERE vs Google Maps" href="/comparisons/here-vs-google-maps">
+    Platform-level fit. Consumer applications versus B2B operational systems.
+  </Card>
+  <Card title="HERE Routing vs Google Maps" href="/comparisons/here-routing-vs-google-maps">
+    Commercial vehicle constraints, matrix semantics, and where Google is the better choice.
+  </Card>
+  <Card title="HERE Geocoding vs Google Maps" href="/comparisons/here-geocoding-vs-google-maps">
+    Address precision, batch architecture, POI discovery, and how to benchmark on your own dataset.
+  </Card>
+  <Card title="HERE vs Mapbox" href="/comparisons/here-vs-mapbox">
+    Rendering and styling versus commercial vehicle routing. Usually a hybrid, not a choice.
+  </Card>
+  <Card title="HERE vs TomTom" href="/comparisons/here-vs-tomtom">
+    Two credible commercial platforms. Where the difference is real and where it is marketing.
+  </Card>
+  <Card title="HERE vs Azure Maps" href="/comparisons/here-vs-azure-maps">
+    A procurement and enterprise-architecture decision more than an API decision.
+  </Card>
+  <Card title="HERE vs OpenStreetMap" href="/comparisons/here-vs-openstreetmap">
+    Not a product comparison. Managed platform versus a self-hosted stack you assemble and operate.
+  </Card>
+</CardGroup>
+
+## What we will not publish
+
+**Unverified savings percentages.** Cost outcomes depend on API mix, volume, region, contract, billing SKU, batching, and architecture. A single number claiming to represent all of those is not a claim, it is a slogan.
+
+**Plan-specific limits presented as universal.** HERE's Matrix Routing size ceiling, for instance, varies by mode — Flexible, Region, or Profile — by synchronous versus asynchronous submission, and by entitlement. Quoting the largest number without the mode that produces it is misleading. See [Matrix Routing](/guides/matrix-routing).
+
+**Benchmark results we did not produce.** If we have not run the test on data we can describe, we will not report a number.
+
+**Competitor characterizations we cannot source.** Where a competitor's capability is unclear from public documentation, we say it is unclear.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Cost Optimization Patterns" href="/architecture/cost-optimization-patterns">
+    Why architecture moves your bill by orders of magnitude and rate cards do not.
+  </Card>
+  <Card title="Google Migration Architecture" href="/architecture/google-migration-architecture">
+    Dual-running, shadow comparison, and rollback.
+  </Card>
+  <Card title="Reducing Google Maps Costs" href="/use-cases/reducing-google-maps-costs">
+    Optimize before you migrate. You may not need to migrate.
+  </Card>
+  <Card title="Choosing the Right HERE APIs" href="/start-here/choosing-the-right-here-apis">
+    Once you have chosen a platform, choose the right primitive within it.
+  </Card>
+</CardGroup>
+
+## Sources
+
+- [HERE Technologies documentation](https://www.here.com/docs)
+- [Placematic comparison hub](https://placematic.com/compare/) — commercial comparison and pricing overview
+
+---
+
+Need to compare these platforms with your own request mix?
+
+Placematic can help you run a technical and cost evaluation using representative routes, addresses and production volumes. Placematic is an official HERE Technologies reseller and implementation partner. [Cost Reduction Audit](https://placematic.com/here-location-services/cost-reduction-audit/).
