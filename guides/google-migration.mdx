@@ -60,7 +60,7 @@ Teams migrating at production volume typically see **40–70% savings**, and **8
 A payback period beyond eighteen months means the savings argument is weaker than the headline number. Say so before your CFO does. It buys you credibility for the migrations that are worth doing.
 </Warning>
 
-**The meters do not map one to one.** Google bills per session where HERE bills per request, and the reverse. You cannot derive a HERE forecast from a Google invoice. Instrument per-endpoint call counts first. See [HERE Pricing Explained](/start-here/here-pricing-explained).
+**The meters do not map one to one.** Google bills per session where HERE bills per request, and the reverse. You cannot derive a HERE forecast from a Google invoice. Instrument per-endpoint call counts first. See [HERE Pricing Explained](/getting-started/here-pricing-explained).
 
 ## Sequencing: migrate one surface at a time
 
@@ -106,7 +106,7 @@ Move to HERE:
 
 **`200` is not success.** HERE returns `200` with an empty `routes` array and a `notice` containing `routeCalculationFailed` when no path exists. Checking `resp.ok` swallows the failure. See [Routing](/guides/routing).
 
-**`403` is not `401`.** `401` means a bad key. `403` means a valid key without entitlement for that API. Retrying `403` is permanently futile and generates support tickets. See [Authentication](/start-here/authentication).
+**`403` is not `401`.** `401` means a bad key. `403` means a valid key without entitlement for that API. Retrying `403` is permanently futile and generates support tickets. See [Authentication](/getting-started/authentication).
 
 **Truck mode requires explicit dimensions.** `transportMode=truck` selects the engine. It does not describe your vehicle. Height in centimetres, `grossWeight` in kilograms. Omitting them returns a route no truck can drive, with no warning.
 
@@ -178,7 +178,7 @@ Write the rollback procedure before the cutover, and test it. A migration you ca
   <Card title="HERE vs Google Maps" href="/comparisons/here-vs-google-maps">
     Where each platform genuinely wins, including where Google does.
   </Card>
-  <Card title="HERE Pricing Explained" href="/start-here/here-pricing-explained">
+  <Card title="HERE Pricing Explained" href="/getting-started/here-pricing-explained">
     Model the bill before you build the business case.
   </Card>
   <Card title="Geocoding and Search" href="/guides/geocoding">

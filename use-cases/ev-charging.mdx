@@ -62,7 +62,7 @@ flowchart TB
 **HERE EV Charge Points API** — the infrastructure. **Why:** station locations, connector types, power feeds, availability, tariffs. It is a **separate product** at [v2 and v3](https://www.here.com/docs/category/ev-charge-points-api-v3), with a documented migration path.
 
 <Warning>
-EV routing and EV Charge Points are different APIs with different entitlements and separate bills. A key that routes EVs may return `403` from the charge points endpoint. Confirm both before you architect. See [Getting a HERE API Key](/start-here/getting-a-here-api-key).
+EV routing and EV Charge Points are different APIs with different entitlements and separate bills. A key that routes EVs may return `403` from the charge points endpoint. Confirm both before you architect. See [Getting a HERE API Key](/getting-started/getting-a-here-api-key).
 </Warning>
 
 **[Matrix Routing](/guides/matrix-routing)** — matrix responses can include consumption alongside time and distance. **Why:** for fleet assignment, "which vehicle can reach this job on current charge" is a matrix question with an energy dimension.
@@ -128,7 +128,7 @@ This is not a solved problem in the market. Charging corridors for commercial ve
 5. **Do not query charge points on map interaction.**
 6. **Batch corridor and electrification analysis.**
 
-Both EV routing and EV Charge Points bill separately. Confirm entitlement for both. See [HERE Pricing Explained](/start-here/here-pricing-explained).
+Both EV routing and EV Charge Points bill separately. Confirm entitlement for both. See [HERE Pricing Explained](/getting-started/here-pricing-explained).
 
 ## Common mistakes
 
@@ -181,7 +181,7 @@ Both EV routing and EV Charge Points bill separately. Confirm entitlement for bo
   </Card>
 </CardGroup>
 
-Also: [Fleet Routing](/use-cases/fleet-routing) · [Truck Routing](/guides/truck-routing) · [Getting a HERE API Key](/start-here/getting-a-here-api-key)
+Also: [Fleet Routing](/use-cases/fleet-routing) · [Truck Routing](/guides/truck-routing) · [Getting a HERE API Key](/getting-started/getting-a-here-api-key)
 
 ## HERE documentation
 

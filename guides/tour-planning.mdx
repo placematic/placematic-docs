@@ -109,7 +109,7 @@ curl --location 'https://tourplanning.hereapi.com/v3/problems/async' \
 </CodeGroup>
 
 <Info>
-API key authentication works too: drop the `Authorization` header and append `?apikey=<YOUR_HERE_API_KEY>` to the URL. This applies to all Tour Planning endpoints. See [Authentication](/start-here/authentication).
+API key authentication works too: drop the `Authorization` header and append `?apikey=<YOUR_HERE_API_KEY>` to the URL. This applies to all Tour Planning endpoints. See [Authentication](/getting-started/authentication).
 </Info>
 
 ## The async lifecycle
@@ -167,7 +167,7 @@ A two-second `maxTime` on a 200-stop problem produces a legal solution that a di
 Tour Planning is included in the HERE Base Plan. This is worth knowing before anyone builds an approximation to avoid a licensing conversation that does not exist.
 </Info>
 
-Confirm your entitlement anyway — Base Plan inclusion and *your contract's* inclusion are separate facts. See [Getting a HERE API Key](/start-here/getting-a-here-api-key).
+Confirm your entitlement anyway — Base Plan inclusion and *your contract's* inclusion are separate facts. See [Getting a HERE API Key](/getting-started/getting-a-here-api-key).
 
 Where teams overspend, and it is rarely on Tour Planning itself:
 
@@ -176,7 +176,7 @@ Where teams overspend, and it is rarely on Tour Planning itself:
 - **Solving per-vehicle instead of per-fleet.** The whole point is fleet-wide balancing.
 - **`maxTime` set so high that solves cost more compute than the improvement is worth.** Measure the knee.
 
-See [HERE Pricing Explained](/start-here/here-pricing-explained).
+See [HERE Pricing Explained](/getting-started/here-pricing-explained).
 
 ## Common mistakes
 
@@ -232,12 +232,12 @@ Complete problem and solution schemas, constraint definitions, and objective con
   <Card title="Routing" href="/guides/routing">
     Turn-by-turn geometry for the legs Tour Planning sequences.
   </Card>
-  <Card title="Choosing the Right HERE APIs" href="/start-here/choosing-the-right-here-apis">
+  <Card title="Choosing the Right HERE APIs" href="/getting-started/choosing-the-right-here-apis">
     Routing, matrix, and solver — the distinction that costs the most to get wrong.
   </Card>
 </CardGroup>
 
-Also: [EV Routing](/guides/ev-routing) · [Authentication](/start-here/authentication) · [HERE Tour Planning](https://placematic.com/here-location-services/here-tour-planning/)
+Also: [EV Routing](/guides/ev-routing) · [Authentication](/getting-started/authentication) · [HERE Tour Planning](https://placematic.com/here-location-services/here-tour-planning/)
 
 ---
 

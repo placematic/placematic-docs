@@ -71,7 +71,7 @@ flowchart TB
 
 **[Truck Routing](/guides/truck-routing)** — if any customer routes commercial vehicles, vehicle profiles must be tenant-scoped model data. A hardcoded height in your routing service is a bridge strike in someone else's fleet.
 
-**[Authentication](/start-here/authentication)** — your customers never see a HERE key. Your platform holds one credential. Their access control is yours to build.
+**[Authentication](/getting-started/authentication)** — your customers never see a HERE key. Your platform holds one credential. Their access control is yours to build.
 
 ## Implementation flow
 
@@ -108,7 +108,7 @@ Most platforms do the first and discover they never needed the second.
 
 **Your billing unit and your cost unit must not diverge.** Billing per shipment while paying per API call means a customer with an inefficient integration destroys your margin on that account. Either bound the calls per shipment, or bill on something correlated with them.
 
-**Evaluate asset-based pricing** if your customers' vehicle populations are countable and their call volumes are not. See [HERE Pricing Explained](/start-here/here-pricing-explained).
+**Evaluate asset-based pricing** if your customers' vehicle populations are countable and their call volumes are not. See [HERE Pricing Explained](/getting-started/here-pricing-explained).
 
 **Rate limits are shared.** HERE sees one contract. Queue and prioritize at your layer: dispatch traffic ahead of bulk onboarding, always.
 
@@ -164,13 +164,13 @@ Most platforms do the first and discover they never needed the second.
 ## Related guides
 
 <CardGroup cols={2}>
-  <Card title="Authentication" href="/start-here/authentication">
+  <Card title="Authentication" href="/getting-started/authentication">
     Key handling, rotation, and why `403` is not `401`.
   </Card>
   <Card title="Matrix Routing" href="/guides/matrix-routing">
     The batch shape to expose so customers do not loop.
   </Card>
-  <Card title="HERE Pricing Explained" href="/start-here/here-pricing-explained">
+  <Card title="HERE Pricing Explained" href="/getting-started/here-pricing-explained">
     Call volume versus asset-based, and why your billing unit matters.
   </Card>
   <Card title="Logistics Platform" href="/use-cases/logistics-platform">
@@ -178,7 +178,7 @@ Most platforms do the first and discover they never needed the second.
   </Card>
 </CardGroup>
 
-Also: [Reducing Google Maps Costs](/use-cases/reducing-google-maps-costs) · [Getting a HERE API Key](/start-here/getting-a-here-api-key) · [Truck Routing](/guides/truck-routing)
+Also: [Reducing Google Maps Costs](/use-cases/reducing-google-maps-costs) · [Getting a HERE API Key](/getting-started/getting-a-here-api-key) · [Truck Routing](/guides/truck-routing)
 
 ---
 

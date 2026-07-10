@@ -12,7 +12,7 @@ The most important fact about the HERE SDK is commercial, not technical.
 Teams discover this during app store submission. It is expensive, it is late, and it is entirely avoidable.
 
 <Warning>
-Confirm mobile SDK entitlement **before** you scope the mobile release. Not after the build succeeds. Both web and mobile are available under a single Placematic contract — but both must be enabled explicitly. See [Getting a HERE API Key](/start-here/getting-a-here-api-key).
+Confirm mobile SDK entitlement **before** you scope the mobile release. Not after the build succeeds. Both web and mobile are available under a single Placematic contract — but both must be enabled explicitly. See [Getting a HERE API Key](/getting-started/getting-a-here-api-key).
 </Warning>
 
 ## What problem this guide solves
@@ -53,7 +53,7 @@ Ask yourself: does this app need to work with the network off? If no, you probab
 
 **Truck routing constraints apply on-device.** Height, `grossWeight`, `axleCount` — the same parameters as [Truck Routing](/guides/truck-routing). An on-device route computed without them is exactly as undrivable as a REST route computed without them, and now it is guiding a driver in real time.
 
-**Credentials are embedded in the binary.** Binaries are trivially decompiled. This is a security consideration, not a hypothetical. See [Authentication](/start-here/authentication).
+**Credentials are embedded in the binary.** Binaries are trivially decompiled. This is a security consideration, not a hypothetical. See [Authentication](/getting-started/authentication).
 
 ## Code examples
 
@@ -103,7 +103,7 @@ Confirm before you build:
 Do not assume your REST API contract covers the SDK. Do not assume your web tile contract covers mobile rendering. These are the two assumptions that produce a licensing conversation two weeks before launch.
 </Warning>
 
-See [HERE Pricing Explained](/start-here/here-pricing-explained) and the [HERE API pricing page](https://placematic.com/here-location-services/here-pricing/).
+See [HERE Pricing Explained](/getting-started/here-pricing-explained) and the [HERE API pricing page](https://placematic.com/here-location-services/here-pricing/).
 
 ## Common mistakes
 
@@ -153,7 +153,7 @@ See [HERE Pricing Explained](/start-here/here-pricing-explained) and the [HERE A
   <Card title="Truck Routing" href="/guides/truck-routing">
     Constraints that must reach the device, not just the server.
   </Card>
-  <Card title="Getting a HERE API Key" href="/start-here/getting-a-here-api-key">
+  <Card title="Getting a HERE API Key" href="/getting-started/getting-a-here-api-key">
     Entitlements are per-product. Confirm before you build.
   </Card>
   <Card title="Routing" href="/guides/routing">
@@ -161,7 +161,7 @@ See [HERE Pricing Explained](/start-here/here-pricing-explained) and the [HERE A
   </Card>
 </CardGroup>
 
-Also: [Authentication](/start-here/authentication) · [HERE SDK](https://placematic.com/here-location-services/here-sdk/)
+Also: [Authentication](/getting-started/authentication) · [HERE SDK](https://placematic.com/here-location-services/here-sdk/)
 
 ---
 

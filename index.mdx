@@ -11,15 +11,14 @@ Start with a request that returns `200`.
 
 <CodeGroup>
 ```bash cURL
-curl "https://router.hereapi.com/v8/routes" \
-  -H "apiKey: $PLACEMATIC_KEY" \
-  -G \
+curl "https://router.hereapi.com/v8/routes" -G \
+  --data-urlencode "apiKey=$HERE_API_KEY"
   --data-urlencode "transportMode=truck" \
   --data-urlencode "origin=42.0641,-88.0509" \
   --data-urlencode "destination=41.5250,-88.0817" \
-  --data-urlencode "truck[height]=410" \
-  --data-urlencode "truck[grossWeight]=35000" \
-  --data-urlencode "return=summary"
+  --data-urlencode "vehicle[height]=410" \
+  --data-urlencode "vehicle[grossWeight]=35000" \
+  --data-urlencode "return=summary" \
 ```
 
 ```python Python
@@ -27,13 +26,13 @@ import os, requests
 
 resp = requests.get(
     "https://router.hereapi.com/v8/routes",
-    headers={"apiKey": os.environ["PLACEMATIC_KEY"]},
     params={
+        "apiKey": os.environ["HERE_API_KEY"],
         "transportMode": "truck",
         "origin": "42.0641,-88.0509",
         "destination": "41.5250,-88.0817",
-        "truck[height]": 410,
-        "truck[grossWeight]": 35000,
+        "vehicle[height]": 410,
+        "vehicle[grossWeight]": 35000,
         "return": "summary",
     },
     timeout=10,
@@ -44,17 +43,17 @@ print(resp.json()["routes"][0]["sections"][0]["summary"])
 
 ```javascript Node.js
 const params = new URLSearchParams({
+  apiKey: process.env.HERE_API_KEY,
   transportMode: "truck",
   origin: "42.0641,-88.0509",
   destination: "41.5250,-88.0817",
-  "truck[height]": "410",
-  "truck[grossWeight]": "35000",
+  "vehicle[height]": "410",
+  "vehicle[grossWeight]": "35000",
   return: "summary",
 });
 
 const resp = await fetch(
-  `https://router.hereapi.com/v8/routes?${params}`,
-  { headers: { "apiKey": process.env.PLACEMATIC_KEY } }
+  `https://router.hereapi.com/v8/routes?${params}`
 );
 if (!resp.ok) throw new Error(`HERE returned ${resp.status}`);
 console.log(await resp.json());

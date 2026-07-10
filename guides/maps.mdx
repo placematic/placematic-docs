@@ -52,7 +52,7 @@ Keeping Google for the consumer-facing map while moving routing and geocoding to
 
 ## Key concepts
 
-**Web tiles and mobile SDK are separate entitlements.** Both are available under a single Placematic contract. Both must be enabled explicitly. A key that serves tiles to your web app may return `403` from the mobile SDK. See [Authentication](/start-here/authentication).
+**Web tiles and mobile SDK are separate entitlements.** Both are available under a single Placematic contract. Both must be enabled explicitly. A key that serves tiles to your web app may return `403` from the mobile SDK. See [Authentication](/getting-started/authentication).
 
 **Billing varies with implementation.** Tiles may be metered per request or per session depending on whether you use the web SDK, a mobile SDK, or static maps. Two implementations rendering the same view can bill differently. Know which one you shipped before you forecast.
 
@@ -106,7 +106,7 @@ Where teams overspend:
 - **Rendering a full interactive map where a static image would serve.** A thumbnail on a job card does not need a pannable map.
 - **One key across web and mobile.** Not a cost problem — an entitlement problem that becomes an outage.
 
-Confirm which billing model applies to your rendering implementation before you forecast. See [HERE Pricing Explained](/start-here/here-pricing-explained) and the [HERE API pricing page](https://placematic.com/here-location-services/here-pricing/).
+Confirm which billing model applies to your rendering implementation before you forecast. See [HERE Pricing Explained](/getting-started/here-pricing-explained) and the [HERE API pricing page](https://placematic.com/here-location-services/here-pricing/).
 
 ## Common mistakes
 
@@ -151,10 +151,10 @@ Confirm which billing model applies to your rendering implementation before you 
   <Card title="Migrating from Google Maps" href="/guides/google-migration">
     Rendering is the most user-visible surface. Migrate it last.
   </Card>
-  <Card title="HERE Pricing Explained" href="/start-here/here-pricing-explained">
+  <Card title="HERE Pricing Explained" href="/getting-started/here-pricing-explained">
     Session versus request billing, and why it matters here.
   </Card>
-  <Card title="Authentication" href="/start-here/authentication">
+  <Card title="Authentication" href="/getting-started/authentication">
     Domain restriction, key exposure, and the `403` that means "not entitled."
   </Card>
 </CardGroup>
