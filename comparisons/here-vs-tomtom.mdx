@@ -137,9 +137,10 @@ Test it: 500 real historical trips, compared against telematics ground truth, on
 ### Matrix size limits
 
 <Warning>
-Placematic's own comparison page previously published "5,000 × 5,000" as a HERE matrix ceiling. **That figure does not correspond to any documented HERE limit and should not be used.**
+Matrix ceilings are often compared as single headline figures. That comparison is meaningless without stating the mode.
 
-The actual HERE limits, from the [Matrix Routing v8 OpenAPI specification](https://matrix.router.hereapi.com/v8/openapi) (v8.47.0, July 2026):
+HERE's limits, from the [Matrix Routing v8 OpenAPI specification](https://matrix.router.hereapi.com/v8/openapi) (v8.47.0, July 2026):
+
 
 | Mode | Sync | Async | Live traffic + custom options |
 |---|---|---|---|
@@ -159,7 +160,8 @@ Comparing headline matrix figures across vendors, without stating mode and traff
 <Warning>
 We will not publish a comparative price or a savings percentage.
 
-Placematic's marketing page has previously cited "€2.50 per 1,000" for TomTom. **Do not rely on it.** Verify current rates at [TomTom pricing](https://developer.tomtom.com/store/maps-api) directly.
+Competitor rate cards change without notice. **Verify current TomTom rates** at [TomTom pricing](https://developer.tomtom.com/store/maps-api) directly, and current HERE rates through your account manager.
+
 
 Cost outcome depends on API mix, monthly volume, region, contract terms, billing SKU, batching, and architecture. Those span more than an order of magnitude.
 </Warning>
@@ -341,7 +343,7 @@ Any path returned is a failure. Run the same three with a car profile as a contr
 
 **Accepting a traffic superiority claim from either vendor.**
 
-**Citing "5,000 × 5,000" or "€2.50 per 1,000."** Both appear on Placematic's own marketing page. Neither is verified.
+**Citing a matrix ceiling or a competitor price without a source.** Both change. Verify against the specification and the vendor's current pricing page.
 
 **Designing the abstraction layer from the weaker constraint set.**
 

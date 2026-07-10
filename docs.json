@@ -30,154 +30,174 @@
     }
   },
   "navigation": {
-    "groups": [
+    "tabs": [
       {
-        "group": "Start here",
-        "icon": "rocket",
-        "pages": [
-          "index",
-          "getting-started/what-is-here-location-services",
-          "getting-started/getting-a-here-api-key",
-          "getting-started/here-pricing-explained",
-          "getting-started/authentication",
-          "getting-started/choosing-the-right-here-apis",
-          "getting-started/here-vs-google-maps"
-        ]
-      },
-      {
-        "group": "Guides",
+        "tab": "Documentation",
         "icon": "book-open",
-        "pages": [
-          "guides/routing",
-          "guides/truck-routing",
-          "guides/ev-routing",
-          "guides/matrix-routing",
-          "guides/geocoding",
-          "guides/reverse-geocoding",
-          "guides/maps",
-          "guides/tour-planning",
-          "guides/catchment-area",
-          "guides/route-matching",
-          "guides/positioning",
-          "guides/batch-geocoding",
-          "guides/points-of-interest",
-          "guides/here-sdk",
-          "guides/google-migration"
+        "groups": [
+          {
+            "group": "Start here",
+            "icon": "rocket",
+            "pages": [
+              "index",
+              "getting-started/what-is-here-location-services",
+              "getting-started/getting-a-here-api-key",
+              "getting-started/here-pricing-explained",
+              "getting-started/authentication",
+              "getting-started/choosing-the-right-here-apis",
+              "getting-started/here-vs-google-maps"
+            ]
+          },
+          {
+            "group": "Guides",
+            "icon": "book-open",
+            "pages": [
+              "guides/routing",
+              "guides/truck-routing",
+              "guides/ev-routing",
+              "guides/matrix-routing",
+              "guides/geocoding",
+              "guides/reverse-geocoding",
+              "guides/maps",
+              "guides/tour-planning",
+              "guides/catchment-area",
+              "guides/route-matching",
+              "guides/positioning",
+              "guides/batch-geocoding",
+              "guides/points-of-interest",
+              "guides/here-sdk",
+              "guides/google-migration"
+            ]
+          },
+          {
+            "group": "FAQ",
+            "icon": "circle-help",
+            "pages": [
+              "faq/index",
+              "faq/what-is-here-location-services",
+              "faq/how-do-i-get-a-here-api-key",
+              "faq/do-i-buy-from-here-or-placematic",
+              "faq/how-much-does-here-cost",
+              "faq/what-drives-my-api-bill",
+              "faq/how-can-i-reduce-location-api-costs",
+              "faq/is-here-cheaper-than-google",
+              "faq/how-does-billing-work",
+              "faq/which-here-api-should-i-use",
+              "faq/should-i-use-routing-or-matrix",
+              "faq/when-should-i-cache-results",
+              "faq/can-i-store-geocoding-results",
+              "faq/how-do-i-handle-rate-limits",
+              "faq/how-do-i-test-before-production",
+              "faq/how-hard-is-it-to-migrate-from-google",
+              "faq/do-i-have-to-change-my-data-model",
+              "faq/can-i-run-google-and-here-in-parallel",
+              "faq/how-do-i-validate-the-migration",
+              "faq/does-here-support-truck-routing",
+              "faq/how-does-here-handle-hazmat",
+              "faq/how-accurate-are-etas",
+              "faq/can-i-build-an-eld-platform",
+              "faq/what-support-does-placematic-provide",
+              "faq/when-should-i-contact-placematic"
+            ]
+          }
         ]
       },
       {
-        "group": "Use cases",
-        "icon": "briefcase",
-        "pages": [
-          "use-cases/fleet-routing",
-          "use-cases/logistics-platform",
-          "use-cases/delivery-zones",
-          "use-cases/restaurant-delivery",
-          "use-cases/field-service",
-          "use-cases/store-locator",
-          "use-cases/territory-management",
-          "use-cases/ev-charging",
-          "use-cases/site-selection",
-          "use-cases/location-intelligence",
-          "use-cases/reducing-google-maps-costs",
-          "use-cases/embedding-routing-api",
-          "use-cases/eta-calculation",
-          "use-cases/eld-platform",
-          "use-cases/vehicle-tracking",
-          "use-cases/geofencing",
-          "use-cases/last-mile-delivery",
-          "use-cases/fleet-electrification",
-          "use-cases/hazmat-routing",
-          "use-cases/address-validation"
-        ]
-      },
-      {
-        "group": "Architecture",
+        "tab": "Solutions",
         "icon": "diagram-project",
-        "pages": [
-          "architecture/index",
-          "architecture/choosing-routing-vs-matrix",
-          "architecture/caching-geocoding-results",
-          "architecture/high-volume-geocoding",
-          "architecture/routing-system-architecture",
-          "architecture/google-migration-architecture",
-          "architecture/multi-tenant-location-platform",
-          "architecture/cost-optimization-patterns"
+        "groups": [
+          {
+            "group": "Use cases",
+            "icon": "briefcase",
+            "pages": [
+              "use-cases/fleet-routing",
+              "use-cases/logistics-platform",
+              "use-cases/delivery-zones",
+              "use-cases/restaurant-delivery",
+              "use-cases/field-service",
+              "use-cases/store-locator",
+              "use-cases/territory-management",
+              "use-cases/ev-charging",
+              "use-cases/site-selection",
+              "use-cases/location-intelligence",
+              "use-cases/reducing-google-maps-costs",
+              "use-cases/embedding-routing-api",
+              "use-cases/eta-calculation",
+              "use-cases/eld-platform",
+              "use-cases/vehicle-tracking",
+              "use-cases/geofencing",
+              "use-cases/last-mile-delivery",
+              "use-cases/fleet-electrification",
+              "use-cases/hazmat-routing",
+              "use-cases/address-validation"
+            ]
+          },
+          {
+            "group": "Architecture",
+            "icon": "diagram-project",
+            "pages": [
+              "architecture/index",
+              "architecture/choosing-routing-vs-matrix",
+              "architecture/caching-geocoding-results",
+              "architecture/high-volume-geocoding",
+              "architecture/routing-system-architecture",
+              "architecture/google-migration-architecture",
+              "architecture/multi-tenant-location-platform",
+              "architecture/cost-optimization-patterns"
+            ]
+          }
         ]
       },
       {
-        "group": "Comparisons",
-        "icon": "scale-balanced",
-        "pages": [
-          "comparisons/index",
-          "comparisons/here-routing-vs-google-maps",
-          "comparisons/here-vs-openstreetmap",
-          "comparisons/here-geocoding-vs-google-maps",
-          "comparisons/here-vs-google-maps",
-          "comparisons/here-vs-mapbox",
-          "comparisons/here-vs-azure-maps",
-          "comparisons/here-vs-tomtom"
-        ]
-      },
-      {
-        "group": "Examples",
+        "tab": "Examples",
         "icon": "code",
-        "pages": [
-          "examples/index",
-          "examples/geocode-address",
-          "examples/batch-address-cleanup",
-          "examples/car-route",
-          "examples/truck-route",
-          "examples/distance-matrix",
-          "examples/calculate-isochrone",
-          "examples/route-matching",
-          "examples/traffic-flow",
-          "examples/tour-planning",
-          "examples/batch-geocoding",
-          "examples/ev-route",
-          "examples/reverse-geocode",
-          "examples/autocomplete-address",
-          "examples/search-poi",
-          "examples/render-map",
-          "examples/nearest-store-search",
-          "examples/store-locator",
-          "examples/fleet-dashboard",
-          "examples/google-migration"
+        "groups": [
+          {
+            "group": "Examples",
+            "icon": "code",
+            "pages": [
+              "examples/index",
+              "examples/geocode-address",
+              "examples/batch-address-cleanup",
+              "examples/car-route",
+              "examples/truck-route",
+              "examples/distance-matrix",
+              "examples/calculate-isochrone",
+              "examples/route-matching",
+              "examples/traffic-flow",
+              "examples/tour-planning",
+              "examples/batch-geocoding",
+              "examples/ev-route",
+              "examples/reverse-geocode",
+              "examples/autocomplete-address",
+              "examples/search-poi",
+              "examples/render-map",
+              "examples/nearest-store-search",
+              "examples/store-locator",
+              "examples/fleet-dashboard",
+              "examples/google-migration"
+            ]
+          }
         ]
       },
       {
-        "group": "FAQ",
-        "icon": "circle-help",
-        "pages": [
-          "faq/index",
-          "faq/what-is-here-location-services",
-          "faq/how-do-i-get-a-here-api-key",
-          "faq/do-i-buy-from-here-or-placematic",
-          "faq/how-much-does-here-cost",
-          "faq/what-drives-my-api-bill",
-          "faq/how-can-i-reduce-location-api-costs",
-          "faq/is-here-cheaper-than-google",
-          "faq/how-does-billing-work",
-          "faq/which-here-api-should-i-use",
-          "faq/should-i-use-routing-or-matrix",
-          "faq/when-should-i-cache-results",
-          "faq/can-i-store-geocoding-results",
-          "faq/how-do-i-handle-rate-limits",
-          "faq/how-do-i-test-before-production",
-          "faq/how-hard-is-it-to-migrate-from-google",
-          "faq/do-i-have-to-change-my-data-model",
-          "faq/can-i-run-google-and-here-in-parallel",
-          "faq/how-do-i-validate-the-migration",
-          "faq/does-here-support-truck-routing",
-          "faq/how-does-here-handle-hazmat",
-          "faq/how-accurate-are-etas",
-          "faq/can-i-build-an-eld-platform",
-          "faq/what-support-does-placematic-provide",
-          "faq/when-should-i-contact-placematic",
-          "faq/dplacematic",
-          "faq/dplacematic",
-
-          "faq/enterprise-licensing"
+        "tab": "Compare",
+        "icon": "scale-balanced",
+        "groups": [
+          {
+            "group": "Comparisons",
+            "icon": "scale-balanced",
+            "pages": [
+              "comparisons/index",
+              "comparisons/here-routing-vs-google-maps",
+              "comparisons/here-vs-openstreetmap",
+              "comparisons/here-geocoding-vs-google-maps",
+              "comparisons/here-vs-google-maps",
+              "comparisons/here-vs-mapbox",
+              "comparisons/here-vs-azure-maps",
+              "comparisons/here-vs-tomtom"
+            ]
+          }
         ]
       }
     ]

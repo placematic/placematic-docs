@@ -109,9 +109,9 @@ Below roughly ten thousand routing calls per month, both platforms are effective
 
 ### Matrix size limits
 
-Your evaluation almost certainly encountered "5,000 × 5,000" somewhere, including on Placematic's own comparison page. **That figure does not correspond to any documented HERE limit.**
+Matrix ceilings are frequently quoted as a single number. There isn't one. 
 
-The actual limits, from the [Matrix Routing v8 OpenAPI specification](https://matrix.router.hereapi.com/v8/openapi) (v8.47.0, retrieved July 2026):
+The limits, from the [Matrix Routing v8 OpenAPI specification](https://matrix.router.hereapi.com/v8/openapi) (v8.47.0, retrieved July 2026):
 
 | Mode | Sync limit | Async limit | Live traffic & custom options | Region constraint |
 |---|---|---|---|---|
@@ -269,7 +269,7 @@ Optimize on your current platform first — cache, batch, debounce, deduplicate 
 
 **Presenting savings without migration engineering cost.**
 
-**Reading "5,000 × 5,000" anywhere and believing it.** Including on our own marketing site. Read the specification.
+**Treating matrix size as one number.** It varies by mode, by sync/async, and by entitlement. Read the specification.
 
 ## Choose HERE when
 

@@ -71,7 +71,7 @@ This failure mode is the reason matrix bugs survive code review. Nothing crashes
 <Warning>
 Matrix size ceilings depend on the mode you select (flexible, region, or profile), on whether you call synchronously or asynchronously, and on your entitlement. Published figures vary and are frequently quoted out of context.
 
-Do not architect against a number from a blog post — including any number quoted on a vendor comparison page. Read the [OpenAPI specification](https://matrix.router.hereapi.com/v8/openapi) and confirm the ceiling for your mode and your contract before you commit to a design.
+Do not architect against a number from a blog post or a comparison table. Read the [OpenAPI specification](https://matrix.router.hereapi.com/v8/openapi) and confirm the ceiling for your mode and your contract before you commit to a design.
 </Warning>
 
 The practically important fact is directional and uncontested: matrix mode handles origin-destination sets at a scale where looping point-to-point routing is not merely more expensive but architecturally infeasible.
