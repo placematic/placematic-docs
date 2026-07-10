@@ -1,0 +1,109 @@
+---
+title: "Does HERE support truck routing?"
+description: "Yes — and setting transportMode=truck is not how you use it. Omit the dimensions and HERE routes an unconstrained vehicle without warning."
+---
+
+# Does HERE support truck routing?
+
+**Short answer:** Yes, and it's the strongest reason to choose HERE. But `transportMode=truck` selects the routing **engine**. It does not tell HERE how tall your vehicle is.
+
+<Warning>
+Omit the dimensions and you get a route. It returns `200`. It contains a polyline. It may route a 4.1-metre trailer under a 3.4-metre bridge.
+
+**HERE will not warn you, because you did not tell it there was a trailer.**
+</Warning>
+
+## What HERE expresses
+
+Verified against the [Matrix Routing v8 OpenAPI specification](https://matrix.router.hereapi.com/v8/openapi), v8.47.0:
+
+- **Dimensions** — `height`, `width`, `length`, `trailerLength` (centimetres)
+- **Weight** — `grossWeight`, `currentWeight`, `emptyWeight`, `payloadCapacity` (kilograms)
+- **Axles** — `axleCount`, `weightPerAxle`, and `weightPerAxleGroup` with `single`, `tandem`, `triple`, `quad`, `quint`
+- **`tunnelCategory`** — ADR restriction code `B`, `C`, `D`, `E`
+- **`shippedHazardousGoods`** — eleven cargo types
+- **`kpraLength`** — kingpin-to-rear-axle, for California and Idaho
+- **`category: lightTruck`** — a legal exemption that does **not** waive physical dimension limits
+- `trailerCount`, `tiresCount`, `licensePlate` for environmental-zone evaluation
+
+<Info>
+**Weight per axle *group* is the decisive parameter for US carriers.**
+
+Federal bridge formula and state limits are frequently expressed per axle group, not per axle. A five-axle tractor-trailer with a steer axle, a tandem drive, and a tandem trailer group cannot be described by a single per-axle scalar.
+
+Competitors that expose only a scalar `axleWeight` cannot determine route legality in those jurisdictions.
+</Info>
+
+## Units will catch you
+
+| Parameter | Unit | A common wrong value |
+|---|---|---|
+| `vehicle[height]` | **centimetres** | `4.1` → a four-centimetre truck |
+| `vehicle[grossWeight]` | **kilograms** | `35` → a 35 kg truck |
+| `vehicle[axleCount]` | count | tractor only, omitting trailers |
+
+**Units are not validated for plausibility.** Pass `4.1` and HERE routes a four-centimetre vehicle under every bridge in North America. `200`.
+
+<Info>
+**`vehicle` supersedes `truck`.** The `truck` object is deprecated in the current v8 spec. `weightLimit` is deprecated in favour of `grossWeight`.
+
+If you're reading a 2021 tutorial, you're reading deprecated parameters.
+</Info>
+
+## Verify it actually applies
+
+Route a 410 cm vehicle through the 11foot8 bridge (Durham NC), Storrow Drive (Boston), and the Southern State Parkway (Long Island).
+
+**Any path returned is a failure.** Run the same three in `car` mode as a control.
+
+**Put this in CI.** A refactor that drops `vehicle[height]` from a params dict is invisible in code review and obvious in a failing test.
+
+## Common misconceptions
+
+**"`transportMode=truck` is truck routing."**
+It selects the engine. Both parts are required.
+
+**"`category=lightTruck` waives dimension limits."**
+It waives certain legal restrictions written for normal trucks. **Bridges do not care about your category.**
+
+**"`axleCount` is the tractor's axles."**
+It's the whole combination, including all trailers. Range 2–255.
+
+**"200 means a valid route."**
+`200` with an empty `routes` array means no path exists. For truck routing, "no legal route" is a **correct** answer. A system that retries with relaxed constraints has just produced an illegal route.
+
+**"Google can do this if I add logic."**
+It can't. The underlying road attributes are not exposed to you.
+
+## The dangerous pattern
+
+<Warning>
+Server-side truck routing with constraints, device-side recalculation **without** them.
+
+The driver deviates. The phone reroutes. The constraint set never left your backend.
+
+**Push vehicle profiles to the device. Test the recalculation path.**
+</Warning>
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Truck Routing" href="/guides/truck-routing">
+    Constraints, units, and validating they apply.
+  </Card>
+  <Card title="Calculate a Truck Route" href="/examples/truck-route">
+    Working code, with CI assertions.
+  </Card>
+  <Card title="Fleet Routing" href="/use-cases/fleet-routing">
+    Where the profile lives, and how it reaches the device.
+  </Card>
+  <Card title="HERE vs TomTom" href="/comparisons/here-vs-tomtom">
+    The axle-group difference, sourced.
+  </Card>
+</CardGroup>
+
+**HERE documentation:** [Routing API v8 reference](https://www.here.com/docs/bundle/routing-api-v8-api-reference/page/index.html)
+
+---
+
+Need production HERE API keys or implementation support? Placematic is an official HERE Technologies reseller and implementation partner. We have deployed HERE truck routing into production ELD systems. [Talk to us](https://placematic.com/contact/).

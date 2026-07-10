@@ -1,0 +1,102 @@
+---
+title: "How do I handle rate limits?"
+description: "429 backs off. 403 never succeeds. Treating them the same generates support tickets and outages."
+---
+
+# How do I handle rate limits?
+
+**Short answer:** `429` is transient — back off with jitter. `403` is permanent — it means your key lacks entitlement for that API. They are not the same problem and they do not have the same remedy.
+
+## The table
+
+| Status | Meaning | Retry? | Do |
+|---|---|---|---|
+| `401` | Key missing, malformed, revoked | No | Check the header and the secret |
+| `403` | Key valid, **entitlement missing** | **Never** | Contact your account manager |
+| `429` | Rate limit exceeded | Yes, backoff + jitter | If persistent, your quota is too low |
+| `400` | Malformed request | No | Fix the parameters |
+| `5xx` | Upstream failure | Yes, backoff + circuit breaker | Transient |
+| `200` + empty `routes` | **No path exists** | **No** | May be the correct answer |
+
+<Warning>
+**Retrying `403` is patient, well-engineered, and permanently futile.** It generates support tickets.
+
+Teams add retry logic around `403` because their HTTP client treats all 4xx uniformly. Read the status code.
+</Warning>
+
+## `429` correctly
+
+**Exponential backoff with jitter.** Fixed-interval retries from a distributed fleet produce a synchronized thundering herd.
+
+**Circuit breakers must reset.** A breaker that opens on the first `429` and never closes turns a throttle into an outage.
+
+**A persistent `429` is a commercial signal**, not a code defect. It means your contracted quota does not match your workload.
+
+## Batch API has its own semantics
+
+Three responses that look like errors and are not:
+
+| Response | Meaning |
+|---|---|
+| `429` on job start | Concurrent job limit. **Queue.** Not a fault |
+| `204` on `/errors` | **Zero errors.** Not a failure |
+| `404` on `/result` | Job hasn't succeeded yet. Poll status first |
+
+<Warning>
+Code that treats any non-`200` as failure will log a perfectly successful nightly job as broken, every night, until someone reads the specification.
+</Warning>
+
+## In a multi-tenant platform
+
+HERE sees **one contract.** Your tenants share its rate limit and don't know each other exists.
+
+**Enforce a per-tenant budget at your gateway, before egress.** Not by observing `429`s and reacting — by refusing to send the request.
+
+**Two ceilings, and they're different:**
+- **Rate ceiling** — requests per second per tenant. Prevents a runaway loop.
+- **Cost ceiling** — spend per tenant per month. A tenant can stay under the rate limit for thirty days and still be your entire invoice.
+
+**Reserve headroom.** Don't allocate 100% of your contracted limit across current tenants.
+
+**Two queues.** Interactive dispatch drains ahead of bulk onboarding, always.
+
+## Log the status alongside the endpoint
+
+`403` on `/tour-planning` and `429` on `/routes` are different conversations — one with your account manager, one with your architect.
+
+**Alert on any `403`.** In steady state it should be zero. Any occurrence is a licensing issue, not a bug.
+
+## Common misconceptions
+
+**"429 means my code is wrong."**
+It means your quota doesn't match your workload.
+
+**"403 will succeed eventually."**
+Never.
+
+**"I'll parallelize to go faster."**
+More workers against a contract limit produce more `429`s.
+
+**"200 means success."**
+HERE returns `200` with an empty `routes` array and a `notice` when no path exists. `resp.ok` swallows it.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Authentication" href="/start-here/authentication">
+    The full error table, rotation, and key handling.
+  </Card>
+  <Card title="Multi-Tenant Location Platform" href="/architecture/multi-tenant-location-platform">
+    Per-tenant quota and the shared rate limit.
+  </Card>
+  <Card title="Routing System Architecture" href="/architecture/routing-system-architecture">
+    Retry policy by status code, and circuit breakers that reset.
+  </Card>
+  <Card title="Batch Geocoding" href="/examples/batch-geocoding">
+    `204` is not an error.
+  </Card>
+</CardGroup>
+
+---
+
+Need production HERE API keys or implementation support? Placematic is an official HERE

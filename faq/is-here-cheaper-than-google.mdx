@@ -1,0 +1,97 @@
+---
+title: "Is HERE cheaper than Google Maps?"
+description: "Sometimes. Rarely for the reason you think, and never in a way a single percentage captures."
+---
+
+# Is HERE cheaper than Google Maps?
+
+**Short answer:** At production volume, often. At low volume, the difference is negligible and not worth a migration. And in the case that matters most — commercial vehicle routing — it isn't a price comparison at all.
+
+<Warning>
+**We will not publish a savings percentage.**
+
+Cost depends on API mix, volume, region, contract terms, billing SKU, batching, and architecture. Those span more than an order of magnitude.
+
+Anyone quoting you a single percentage is quoting a benchmark on a workload that isn't yours.
+</Warning>
+
+## Where the difference is real
+
+**Matrix operations.** If you loop routing calls to build a distance table, the gap is not a rate difference. It is architectural. A 20×500 problem is 10,000 calls or 1.
+
+**Batch geocoding at volume.** Cheaper per record, and the workload is usually enormous.
+
+**Truck routing.** Google offers no equivalent depth of commercial vehicle constraints. **This is not a cost argument.** It's a capability argument, and it's the strongest one.
+
+## Where it isn't
+
+**Entry-level rates.** Close across vendors. Comparing them teaches you nothing.
+
+**Consumer place discovery.** Google's business database — hours, reviews, photos, categories — is categorically better. Cheaper on a feature people stop using is not cheaper.
+
+**Low volume.** Under roughly $1,000/month after optimization, the payback period on migration engineering is measured in years. Do something else.
+
+## The meters do not translate
+
+<Warning>
+Google bills autocomplete on a session-token model where sessions are used. HERE bills per request. Google prices some products per element; HERE per transaction.
+
+**You cannot derive a HERE forecast from a Google invoice.** Instrument per-endpoint call counts from logs first.
+</Warning>
+
+## Do this before you compare
+
+**Optimize on Google.** Cache geocoding. Batch what tolerates latency. Debounce autocomplete. Deduplicate. Stop reverse-geocoding every GPS ping. Put a CDN in front of tiles.
+
+Re-measure.
+
+A meaningful share of teams find the bill halves. What remains is your real migration case, with a clean baseline.
+
+<Tip>
+Present that saving to finance **before** proposing a migration. You'll have delivered a result, and the migration conversation becomes optional rather than defensive.
+</Tip>
+
+## And model migration cost
+
+| Line | Source |
+|---|---|
+| Current spend, per endpoint | Logs |
+| Savings from optimization on Google | Measured |
+| Remaining spend — the real target | Derived |
+| Projected HERE cost, same call volume | Both models |
+| Migration engineering cost | Estimated honestly |
+| **Payback period** | Derived |
+
+**If the payback period exceeds eighteen months, say so before your CFO does.** It costs you one migration and buys credibility for the ones worth doing.
+
+## Common misconceptions
+
+**"HERE is 40% cheaper."**
+Under what call mix, at what volume, in which region, on which contract?
+
+**"Price is why we'd switch."**
+For commercial vehicle routing, price is not the argument. Correctness is.
+
+**"Google repriced once, so HERE is safer."**
+Price stability is a term in your contract, not a property of a platform. Negotiate it or don't claim it.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="HERE vs Google Maps" href="/comparisons/here-vs-google-maps">
+    Platform-level fit, including where Google wins.
+  </Card>
+  <Card title="Reducing Google Maps Costs" href="/use-cases/reducing-google-maps-costs">
+    Optimize first. You may not need to migrate.
+  </Card>
+  <Card title="HERE Routing vs Google" href="/comparisons/here-routing-vs-google-maps">
+    The capability gap that price can't close.
+  </Card>
+  <Card title="What drives my API bill?" href="/faq/what-drives-my-api-bill">
+    Not the rate card.
+  </Card>
+</CardGroup>
+
+---
+
+Need production HERE API keys or implementation support? Placematic is an official HERE Technologies reseller and implementation partner. [Talk to us](https://placematic.com/contact/).

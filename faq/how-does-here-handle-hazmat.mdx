@@ -1,0 +1,111 @@
+---
+title: "How does HERE handle hazmat routing?"
+description: "Two separate parameters governing different things. Confusing them is the most common — and most consequential — hazmat integration error."
+---
+
+# How does HERE handle hazmat routing?
+
+**Short answer:** Two parameters, and they are **not** the same thing.
+
+- **`shippedHazardousGoods`** — an **array of cargo types**
+- **`tunnelCategory`** — the **ADR tunnel restriction code** `B`, `C`, `D`, or `E`
+
+<Warning>
+Supplying one does not imply the other. Confusing them is the most common hazmat integration error, and this is a domain where a software defect is a regulatory event.
+</Warning>
+
+## The values
+
+**`shippedHazardousGoods`** accepts an array from:
+
+`explosive`, `gas`, `flammable`, `combustible`, `organic`, `poison`, `radioactive`, `corrosive`, `poisonousInhalation`, `harmfulToWater`, `other`
+
+**`tunnelCategory`** accepts a single value: `B`, `C`, `D`, or `E`. It governs which tunnels the vehicle may enter under ADR.
+
+<Info>
+Verified against the [Matrix Routing v8 OpenAPI specification](https://matrix.router.hereapi.com/v8/openapi), v8.47.0, July 2026.
+</Info>
+
+**Physical constraints still apply.** A hazmat tanker is also a tall, heavy vehicle. Both constraint sets are required.
+
+## Do not map a boolean
+
+<Warning>
+`shippedHazardousGoods` is not `is_hazmat`. It's an array of eleven cargo types.
+
+Map your internal material classification against HERE's enum **deliberately**, with a documented mapping table, and **have it reviewed by someone qualified in the applicable regulation.**
+
+This is not a place to guess.
+</Warning>
+
+## Your system must be able to refuse
+
+A routing request for a hazmat load without a class is not a request to route with defaults. **It is an invalid request.** Fail loudly.
+
+<Warning>
+**An empty `routes` array on a hazmat request is not a bug.** It may be the correct answer: no permissible route exists between these points for this class.
+
+A system that retries with relaxed constraints, or falls back to car routing, has just produced an illegal route.
+</Warning>
+
+## Constraints belong to the load, not the carrier
+
+The same tractor hauls dry van on Monday and hazmat class D on Tuesday.
+
+`shippedHazardousGoods` is a property of **what is in the trailer**, and it changes per shipment. Vehicle dimensions belong to the vehicle record. Never hardcode either at a call site.
+
+## Cache keys must include the constraint set
+
+<Warning>
+An origin-destination cache key is a defect. Do not serve a route computed for one cargo class to a shipment carrying another.
+</Warning>
+
+## Record the map release
+
+Restrictions change. A route computed in March against a March map may differ in September. If an incident occurs, you will be asked what the system knew and when.
+
+## Common misconceptions
+
+**"`B|C|D|E` are hazmat classes."**
+They're tunnel categories. Different parameter, different meaning.
+
+**"`category=lightTruck` exempts hazmat."**
+It waives certain legal restrictions written for normal trucks. **It does not make a flammable liquid non-flammable.**
+
+**"If no route is found, relax a constraint."**
+That is how illegal routes reach drivers.
+
+**"Google can do this."**
+It offers no hazmat routing capability. Not a close comparison.
+
+**"Regulatory data is uniform globally."**
+Coverage and depth of hazmat restriction data vary by market.
+
+## Test it
+
+Ask your compliance officer for known-prohibited segments in your operating region. Assert that a routed hazmat vehicle avoids each. Put it in CI.
+
+This is worth more than any amount of documentation review.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Hazmat Routing" href="/use-cases/hazmat-routing">
+    The full architecture, and refusing to route.
+  </Card>
+  <Card title="Truck Routing" href="/guides/truck-routing">
+    Physical constraints, which also apply.
+  </Card>
+  <Card title="ELD Platform" href="/use-cases/eld-platform">
+    Map release versioning as an audit artifact.
+  </Card>
+  <Card title="HERE vs TomTom" href="/comparisons/here-vs-tomtom">
+    Both implement ADR tunnel codes. The taxonomies differ.
+  </Card>
+</CardGroup>
+
+**HERE documentation:** [Routing API v8 reference](https://www.here.com/docs/bundle/routing-api-v8-api-reference/page/index.html)
+
+---
+
+Need production HERE API keys or implementation support? Placematic is an official HERE Technologies reseller and implementation partner. [Talk to us](https://placematic.com/contact/).

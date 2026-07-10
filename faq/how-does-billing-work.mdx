@@ -1,0 +1,103 @@
+---
+title: "How does HERE billing work?"
+description: "Per-transaction, per-API, with two commercial models. Free bundles don't pool, and choosing the wrong model punishes operational diligence."
+---
+
+# How does HERE billing work?
+
+**Short answer:** Usage-based, metered per API, under one of two commercial models. There is no flat monthly fee and no cross-API bundle.
+
+## Every API is a separate meter
+
+Routing, geocoding, tiles, matrix, tour planning, traffic. Six meters.
+
+**Free bundles are per-API and do not pool.** Exhausting your routing bundle does not consume your geocoding bundle, and unused geocoding does not subsidize routing.
+
+## Two commercial models
+
+<CardGroup cols={2}>
+  <Card title="Call volume" icon="chart-line">
+    Priced per API call. Cost scales with usage. Suits SaaS platforms whose call volume tracks customer count.
+  </Card>
+  <Card title="Asset-based" icon="truck">
+    Priced per tracked asset per month. Cost scales with fleet size, not API chatter. Suits fleet operators with countable vehicles.
+  </Card>
+</CardGroup>
+
+The choice is not cosmetic.
+
+<Warning>
+A dispatcher who reroutes a 200-truck fleet forty times a day generates enormous call volume against a stable asset count.
+
+**Under call-volume pricing that team pays for operational diligence.** Under asset-based pricing they don't.
+</Warning>
+
+**Rule of thumb:** if you can count your vehicles and can't predict your calls, ask about asset-based. If you can predict your calls and don't own vehicles, call volume.
+
+<Info>
+**Asset-based pricing availability depends on contract tier.** Confirm it before it becomes load-bearing in a business case presented to your CFO.
+</Info>
+
+## Base Plan vs Enterprise Plan
+
+**Base Plan** — transaction-based, with free monthly bundles. You pay above the bundle.
+
+**Enterprise Plan** — cost certainty through volume-based and asset-based pricing. Includes fleet optimization SDK, HERE Navigate SDK, offline maps.
+
+The jump is not primarily about price per call. It's about what you're **entitled to**. Offline maps and the Navigate SDK are not purchasable as Base Plan add-ons.
+
+<Info>
+HERE documents **Tour Planning as included in the HERE Base Plan.** Confirm your own entitlement — Base Plan inclusion and your contract's inclusion are separate facts.
+</Info>
+
+## What counts as a transaction
+
+One billable API call. Definitions vary by product — a tile request, a route calculation, a geocode.
+
+**Confirm the unit per API before forecasting.** Tiles in particular may be metered per request or per session depending on whether you use web tiles, the mobile SDK, or static maps. Two implementations rendering the same view can bill differently.
+
+## Who invoices you
+
+Through Placematic: **Placematic USA LLC, exclusively.** One invoice covering all HERE services. HERE does not invoice you.
+
+Direct: HERE invoices you.
+
+## Common misconceptions
+
+**"There's a bundle."**
+There isn't. Six APIs, six meters.
+
+**"Free bundles pool."**
+They don't.
+
+**"Batch and real-time are the same rate."**
+They're not. Batch geocoding is cheaper per record.
+
+**"Contract length doesn't matter."**
+Longer commitments buy lower per-call pricing.
+
+**"Growth means proportional cost."**
+Once the architecture is right, most surfaces are bounded by location count or distinct address count — business numbers you know in advance.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="HERE Pricing Explained" href="/start-here/here-pricing-explained">
+    Both models, free bundles, and how to model a defensible bill.
+  </Card>
+  <Card title="How much does HERE cost?" href="/faq/how-much-does-here-cost">
+    Why nobody can answer without your call mix.
+  </Card>
+  <Card title="Multi-Tenant Location Platform" href="/architecture/multi-tenant-location-platform">
+    Cost attribution, and why billing unit must correlate with cost unit.
+  </Card>
+  <Card title="Do I buy from HERE or Placematic?" href="/faq/do-i-buy-from-here-or-placematic">
+    Contracting paths.
+  </Card>
+</CardGroup>
+
+**Placematic:** [HERE API pricing](https://placematic.com/here-location-services/here-pricing/)
+
+---
+
+Need production HERE API keys or implementation support? Placematic is an official HERE Technologies reseller and implementation partner. [Talk to us](https://placematic.com/contact/).

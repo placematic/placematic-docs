@@ -1,0 +1,86 @@
+---
+title: "Do I have to change my data model?"
+description: "Yes, in one specific way — and it's the way migrations fail. Design your abstraction from the richer capability set."
+---
+
+# Do I have to change my data model?
+
+**Short answer:** Not much, except in one place that matters enormously. If you build a provider facade, **design its interface from HERE's capability set, not Google's.**
+
+## The failure
+
+<Warning>
+An interface derived from Google has no field for vehicle height. Or `access` point. Or per-field confidence.
+
+When you later add HERE, that data **has nowhere to live and gets silently dropped.**
+
+This is the most common structural error in Google-to-HERE migrations.
+</Warning>
+
+If your Google implementation had no notion of a vehicle's physical dimensions — because Google could not express them — an interface abstracted from it has no field for one.
+
+The route still returns `200`. The truck still gets dispatched.
+
+## What to add
+
+**`access` point.** HERE returns two coordinates per geocode: `position` (the address) and `access` (where a vehicle arrives on the road network). Google returns one. **Route to `access`.** Routing to `position` may target a building's geometric centre, or a point separated from the road by a car park.
+
+**Per-field confidence.** HERE returns `queryScore` *and* `fieldScore` — which component was uncertain. `queryScore: 0.95` with `fieldScore.houseNumber: 0.4` is a failed delivery. `fieldScore.postalCode: 0.8` is not.
+
+**Rooftop vs interpolated.** `houseNumberType: "PA"` is a surveyed point address. `interpolated` is an estimate along a street segment, potentially tens of metres off.
+
+**Vehicle profile as a first-class record.** Height (centimetres), gross weight (kilograms), axle count including trailers, hazmat cargo types, ADR tunnel category.
+
+<Warning>
+**Vehicle constraints belong on the vehicle record, never at a call site.** A developer adding a new endpoint who copies a routing call without the profile has introduced a defect that is invisible in code review and returns `200`.
+</Warning>
+
+**Provider identifier in a nullable side column.** If cutting over wrote a `here_id` onto a core record, rollback becomes stateful. Keep it separable.
+
+## What doesn't change
+
+Your PostGIS geometry. Your delivery zones. Your geocode cache table. Your geofence polygons.
+
+**Most of what a location system does never touches a location API.** That layer is identical on either platform.
+
+## Convert units at the adapter
+
+Not in the interface.
+
+HERE's `height` is centimetres. TomTom's `vehicleHeight` is metres. Store one, and make each adapter responsible for the conversion.
+
+<Warning>
+Pass `4.1` to HERE and you have declared a four-centimetre truck. It routes under every bridge in North America. The response is `200`.
+</Warning>
+
+## Common misconceptions
+
+**"We'll add the fields when we need them."**
+You need them at the moment you dispatch a truck, and by then the interface has fifty call sites.
+
+**"Confidence is just a number."**
+Storing a coordinate without its confidence converts a probabilistic estimate into a fact. Every downstream system treats it as truth. Low-confidence fallbacks silently corrupt revenue maps and route vehicles to centroids.
+
+**"The facade should be minimal."**
+The facade should express every constraint that determines whether a route is legal.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Google Migration Architecture" href="/architecture/google-migration-architecture">
+    The provider facade, designed correctly.
+  </Card>
+  <Card title="Migrating One Endpoint" href="/examples/google-migration">
+    Both adapters, side by side.
+  </Card>
+  <Card title="Routing System Architecture" href="/architecture/routing-system-architecture">
+    Constraints live on records.
+  </Card>
+  <Card title="Address Validation" href="/use-cases/address-validation">
+    Why `fieldScore` and `houseNumberType` must be persisted.
+  </Card>
+</CardGroup>
+
+---
+
+Need production HERE API keys or implementation support? Placematic is an official HERE Technologies reseller and implementation partner. [Talk to us](https://placematic.com/contact/).

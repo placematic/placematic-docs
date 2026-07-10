@@ -1,0 +1,111 @@
+---
+title: "Can I store geocoding results?"
+description: "A contract question with architectural consequences. Get the answer in writing before you design a permanent cache."
+---
+
+# Can I store geocoding results?
+
+**Short answer:** It depends on your contract, and you need the answer in writing before you build.
+
+<Warning>
+**Both HERE and Google place restrictions on retaining geocoded coordinates.** Those restrictions differ by platform, by plan, and over time.
+
+We will not summarize them here, because they change and a summary that is wrong is worse than no summary.
+
+**Ask your account manager. Get it in writing.**
+</Warning>
+
+## Why this is an architecture question, not a legal footnote
+
+A permanent geocode cache is the single largest cost lever available in this domain. Buildings are stationary; re-geocoding the same address on every order is pure waste.
+
+**But its permissibility is a contract term.** If your contract restricts retention, your entire cost model changes — and so does your migration business case.
+
+Resolve this in week one, not after you've built the pipeline.
+
+## What to ask, specifically
+
+Not "can we cache?" — the answer is always "it depends."
+
+Ask:
+
+1. May we store latitude and longitude against a customer record, indefinitely?
+2. May we store the normalized address string returned by the API?
+3. May we store the platform's place ID or feature ID?
+4. Does the answer change if we display the result on that platform's map versus a competitor's?
+5. Does the answer change for batch geocoding versus real-time?
+6. What is the retention limit, if any, and does it reset on re-query?
+
+## Personal data, separately
+
+<Warning>
+A permanent geocode cache is a permanent record of where people live.
+
+**Coordinates that identify a residence are personal data** under GDPR and comparable regimes, whether or not a name is attached. Right-to-erasure applies to the cache. It is not exempt because it is "just a cache."
+</Warning>
+
+**The clean resolution:** separate the *address → coordinate* mapping from the *person → address* mapping.
+
+The coordinate for `123 Main Street, Chicago` is a fact about the world. The fact that Jane Smith lives there is personal data.
+
+Store them separately. Delete the second. Keep the first.
+
+This is defensible, it preserves the cache hit rate, and it's what mature systems do.
+
+## Multi-tenant systems
+
+<Warning>
+A **shared** geocode cache across tenants is a data leak.
+
+Cache hit patterns are a side channel. Response latency reveals whether another tenant has geocoded a given address. Repeated across a candidate list, that reconstructs a customer list.
+
+Key every cache by tenant. Verify it with an explicit cross-tenant test in CI.
+</Warning>
+
+The world-facts / tenant-data split above resolves this too, if your threat model permits it.
+
+## Common misconceptions
+
+**"Caching is obviously allowed, everyone does it."**
+Everyone has a contract. Read yours.
+
+**"A cache isn't storage."**
+It is storage with a TTL. If the TTL is `NULL`, it is a database.
+
+**"Erasure requests don't reach the cache."**
+They do.
+
+**"Retention policy is someone else's problem."**
+A cache that never expires is a retention policy that says "forever." Someone in your organization has committed to something shorter. Reconcile them.
+
+## If retention is restricted
+
+You still have levers:
+
+- **Deduplicate before geocoding.** Free, always permitted.
+- **Batch what tolerates latency.** Cheaper per record.
+- **Debounce autocomplete.** Fewer calls, no storage.
+- **Materialize derived artifacts** — delivery zones, service polygons — which are your data, not the platform's.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Caching Geocoding Results" href="/architecture/caching-geocoding-results">
+    Normalization, invalidation, and the privacy design.
+  </Card>
+  <Card title="Multi-Tenant Location Platform" href="/architecture/multi-tenant-location-platform">
+    The cache key that leaks.
+  </Card>
+  <Card title="When should I cache results?" href="/faq/when-should-i-cache-results">
+    What to cache, and for how long.
+  </Card>
+  <Card title="Do I buy from HERE or Placematic?" href="/faq/do-i-buy-from-here-or-placematic">
+    Who answers contract questions.
+  </Card>
+</CardGroup>
+
+---
+
+Need production HERE API keys or implementation support?
+
+Placematic is an official HERE Technologies reseller and implementation partner. Caching and retention terms are exactly the kind of question a Gold Partner answers before you build. [Talk to us](https://placematic.com/contact/).

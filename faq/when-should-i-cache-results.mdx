@@ -1,0 +1,101 @@
+---
+title: "When should I cache results?"
+description: "Almost always. Buildings are stationary. But cache the right thing, keyed the right way, invalidated on events rather than clocks."
+---
+
+# When should I cache results?
+
+**Short answer:** Geocoding, always and permanently. Route geometry, for hours. ETAs, barely. Isolines, materialize them into a database and stop calling the API.
+
+## What to cache, and for how long
+
+| Artifact | Stability | Strategy |
+|---|---|---|
+| Geocode (address → coordinate) | Years | Permanent. Invalidate on events, not time |
+| Reverse geocode (coordinate → address) | Years | Round coordinate to ~5dp, then cache |
+| Route **geometry** between fixed points | Hours | Cache |
+| Route **ETA** | Minutes | Don't. Recompute from geometry |
+| Isoline polygon | Months | Materialize into PostGIS |
+| Matrix (fixed depots, fixed stops) | Days–weeks | Hash the input set |
+| Lane distance (freight rating) | Months | A table, not an API |
+| Tiles | Static per z/x/y/style | CDN |
+
+<Warning>
+**Cache geometry and ETAs separately.** The path between two fixed points is stable for hours. The duration is not. One TTL for both serves stale arrival times to drivers.
+</Warning>
+
+## Normalization is the multiplier
+
+`123 Main St` and `123 Main Street` are the same address and two cache misses.
+
+Before hashing: trim, case-fold, expand abbreviations, canonicalize postal codes, normalize unit designators.
+
+<Tip>
+Instrument cache hit rate **before and after** normalization. Teams routinely find half their misses were the same address written three ways. That's a free doubling with no API involved.
+</Tip>
+
+## Don't use a TTL on geocoding
+
+<Warning>
+A thirty-day TTL invalidates a stable rooftop match for a building that has stood since 1904, and does nothing about the subdivision that opened yesterday.
+
+**Time-based TTL on geocoding is cargo-cult caching.** It costs money and improves nothing.
+</Warning>
+
+Invalidate on **events**:
+
+- Map release ships
+- Confidence score below threshold
+- Customer corrects their address
+- A delivery fails to that coordinate
+
+Store `geocoded_at` and the map release so that *selective* re-geocoding is possible. Without them your only options are "everything" and "nothing."
+
+## Round coordinates before caching reverse geocodes
+
+GPS jitter defeats an exact-match cache. Round to ~5 decimal places — about one metre.
+
+A vehicle idling at a depot generates hundreds of pings within a metre of each other. **One cache entry.**
+
+## Common misconceptions
+
+**"Caching is a small optimization."**
+It's the difference between paying per order and paying per distinct customer. A team with a 12% geocode hit rate does not have a pricing problem.
+
+**"Redis is the cache."**
+Redis is a latency optimization. **The durable database record is the system of record.** An eviction is a re-geocode you already paid for.
+
+**"I should cache in the browser."**
+No. Coordinates for customer addresses are not the browser's business, and a client cache is neither durable nor deletable.
+
+**"A shared cache across tenants is fine."**
+It's a side channel. Cache hit patterns and timing reveal whether another tenant has geocoded a given address. Key by tenant.
+
+## And check your contract
+
+<Warning>
+**Retention of geocoded coordinates is a contract term**, not an engineering decision. Both HERE and Google place restrictions, and they vary by plan and over time.
+
+Get the answer in writing before you design a permanent cache. See [Can I store geocoding results?](/faq/can-i-store-geocoding-results)
+</Warning>
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Caching Geocoding Results" href="/architecture/caching-geocoding-results">
+    Normalization, invalidation, Redis vs database, and privacy.
+  </Card>
+  <Card title="Can I store geocoding results?" href="/faq/can-i-store-geocoding-results">
+    The contract question.
+  </Card>
+  <Card title="Cost Optimization Patterns" href="/architecture/cost-optimization-patterns">
+    Pattern 4, in context.
+  </Card>
+  <Card title="Delivery Zones" href="/use-cases/delivery-zones">
+    Materializing isolines instead of caching them.
+  </Card>
+</CardGroup>
+
+---
+
+Need production HERE API keys or implementation support? Placematic is an official HERE Technologies reseller and implementation partner. [Talk to us](https://placematic.com/contact/).

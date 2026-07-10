@@ -1,0 +1,84 @@
+---
+title: "What is HERE Location Services?"
+description: "A platform of roughly two dozen APIs — routing, geocoding, maps, positioning, fleet optimization — priced separately and with different maturity levels."
+---
+
+# What is HERE Location Services?
+
+**Short answer:** A set of REST APIs and SDKs for geocoding, routing, map rendering, positioning, and fleet optimization. Not one API — roughly two dozen, priced separately, with meaningfully different maturity levels.
+
+## The longer version
+
+Most teams arrive for one of two reasons: they need truck routing that respects physical vehicle constraints, or their Google Maps bill grew faster than their revenue.
+
+Both are good reasons. Neither is a reason to migrate everything.
+
+Grouped by what you'd build with them:
+
+| Family | APIs |
+|---|---|
+| **Routing** | Routing v8, Matrix Routing v8, Isoline Routing v8, Route Matching v8, Tour Planning v3 |
+| **Search** | Geocoding & Search v7 (`/geocode`, `/revgeocode`, `/autocomplete`, `/autosuggest`, `/discover`, `/browse`, `/lookup`), Batch API v7 |
+| **Rendering** | Raster Tile v3, HERE Maps API for JavaScript, HERE SDK (iOS/Android) |
+| **Data** | Traffic v7, EV Charge Points v3, Positioning |
+
+<Warning>
+**Every API is a separate meter.** There is no bundle. Routing, geocoding, and tiles are three different bills. Free bundles are per-API and do not pool.
+</Warning>
+
+## What actually differentiates it
+
+Price is why teams *start* evaluating HERE. **Routing correctness is why they stay.**
+
+HERE Routing v8 accepts vehicle height, width, length, gross weight, current weight, weight per axle, weight per **axle group** (single, tandem, triple, quad, quint), axle count, trailer count, ADR tunnel category, eleven hazardous cargo types, and KPRA length.
+
+Google Maps Platform does not expose these, and it does not expose the underlying road attributes either — so you cannot implement them yourself.
+
+It also has **Route Matching**, which turns a GPS trace into the road segments actually driven, with a `MapVersion` in the response. That is what IFTA jurisdiction miles and defensible speed compliance require.
+
+## Common misconceptions
+
+**"HERE Maps and HERE Location Services are the same thing."**
+No. HERE Maps is the consumer product. Location Services is the developer platform. Only the latter is licensable.
+
+**"It's a cheaper Google Maps."**
+For business POIs, hours, reviews, and photos, Google's data is **categorically** better. Placematic sells HERE. We'd rather you know now.
+
+**"`transportMode=truck` gives me truck routing."**
+It selects the engine. It does not describe your vehicle. Omit the dimensions and HERE routes an unconstrained vehicle, returns `200`, and does not warn you.
+
+**"Tour Planning is enterprise-tier."**
+HERE documents it as included in the Base Plan. Confirm your own entitlement — Base Plan inclusion and your contract's inclusion are separate facts.
+
+**"Matrix supports 5,000 × 5,000."**
+No documented HERE limit says this. Ceilings vary by mode: Flexible caps at 15×100 with live traffic; Region async reaches 10,000×10,000 within a 400 km diameter. Read the [spec](https://matrix.router.hereapi.com/v8/openapi).
+
+## When not to use it
+
+- Consumer place discovery. Keep Google.
+- Under ~10k calls/month. You're optimizing a rounding error.
+- Street View. No equivalent exists.
+- You need the exact Google tile aesthetic. Your designers will notice.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="What is HERE Location Services?" href="/start-here/what-is-here-location-services">
+    The full platform overview.
+  </Card>
+  <Card title="Choosing the Right HERE APIs" href="/start-here/choosing-the-right-here-apis">
+    A decision tree by use case.
+  </Card>
+  <Card title="HERE vs Google Maps" href="/comparisons/here-vs-google-maps">
+    Where each genuinely wins.
+  </Card>
+  <Card title="Truck Routing" href="/guides/truck-routing">
+    The differentiator, in detail.
+  </Card>
+</CardGroup>
+
+**HERE documentation:** [HERE Technologies documentation](https://www.here.com/docs)
+
+---
+
+Need production HERE API keys or implementation support? Placematic is an official HERE Technologies reseller and implementation partner. [Talk to us](https://placematic.com/contact/).

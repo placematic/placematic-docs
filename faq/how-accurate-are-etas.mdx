@@ -1,0 +1,97 @@
+---
+title: "How accurate are HERE ETAs?"
+description: "The routing duration is usually fine. Your ETA is wrong because it omits everything the routing engine cannot know."
+---
+
+# How accurate are HERE ETAs?
+
+**Short answer:** Accurate enough that the routing engine is rarely your problem. **Your ETA is wrong because a routing duration is not a delivery promise.**
+
+<Warning>
+Presenting a routing duration as an ETA is the most common source of ETA inaccuracy — and it is a **modelling error, not an API error.** It survives migration.
+</Warning>
+
+## What the routing engine doesn't know
+
+A routing duration is the time a vehicle spends **moving.** That's rarely the number the customer cares about.
+
+Missing:
+
+- **Preparation time** — food cooking, order picking, loading
+- **Service time** at the stop — unloading, signature, elevator, the customer who takes four minutes to answer
+- **Dwell time** between arrival and next departure
+- **Parking** — eleven minutes in dense urban delivery, modelled by nobody
+- **Driver behaviour** — breaks, deviations
+
+In dense last-mile delivery, service time and failed attempts frequently dominate travel time.
+
+## Decompose it
+ETA = preparation + travel + service + buffer
+Store each separately. Present the sum.
+
+<Tip>
+Instrument the **residual** — actual minus predicted — broken down by component.
+
+Most teams discover that travel duration is accurate to within a few percent and **service time is off by 40%.** That tells you where to spend the next quarter.
+</Tip>
+
+## Set `departureTime` explicitly
+
+Traffic is evaluated at the **departure** time, not at request time.
+
+A route computed at 2pm for a 6pm departure inherits 2pm traffic unless you say otherwise. `departureTime=any` disables traffic awareness entirely.
+
+## Don't re-route to refresh
+
+<Warning>
+Re-routing on every GPS ping to refresh an ETA is the same architectural error as reverse-geocoding every ping.
+
+**Recompute the remaining duration from the route geometry and current position.** That's arithmetic on data you already hold. Call routing when the driver **deviates.**
+</Warning>
+
+## Communicate uncertainty
+
+"Arriving at 3:14pm" is a promise you cannot keep. "Between 3:05 and 3:25" is one you can.
+
+**Report the residual distribution — p50, p90, p99 — not the mean.** A platform whose durations are unbiased on average but have twice the variance produces twice as many late deliveries.
+
+## Common misconceptions
+
+**"Google's traffic is better, so their ETAs are better."**
+Google's traffic derives from an enormous consumer device population. That's a real advantage for dense urban passenger routing. **Whether it's an advantage on your corridors, at your departure times, is empirical.** Test it.
+
+**"Switching vendors will fix our ETAs."**
+If service time is your error term, no vendor helps.
+
+**"Multi-stop ETAs compound linearly."**
+They compound at every hop, and dwell time compounds with them.
+
+**"A car route's duration is a truck's duration."**
+It isn't, because it isn't the truck's route.
+
+## Build the feedback loop
+
+Actual arrival minus predicted, per job type, per time of day, fed back into service-time estimates.
+
+**Without it, your ETA accuracy will never improve — on any platform.**
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="ETA Calculation" href="/use-cases/eta-calculation">
+    Decomposition, the feedback loop, and cost traps.
+  </Card>
+  <Card title="Last-Mile Delivery" href="/use-cases/last-mile-delivery">
+    Where service time dominates travel time.
+  </Card>
+  <Card title="Fleet Dashboard" href="/examples/fleet-dashboard">
+    ETA refresh from geometry, in code.
+  </Card>
+  <Card title="Routing" href="/guides/routing">
+    `departureTime` and traffic semantics.
+  </Card>
+</CardGroup>
+
+---
+
+Need production HERE API keys or implementation support? Placematic is an official HERE Technologies reseller and implementation partner. [Talk to us](https://placematic.com/contact/).

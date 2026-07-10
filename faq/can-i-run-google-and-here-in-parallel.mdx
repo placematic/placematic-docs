@@ -1,0 +1,97 @@
+---
+title: "Can I run Google and HERE in parallel?"
+description: "You should, during migration. And you may want to stay that way permanently."
+---
+
+# Can I run Google and HERE in parallel?
+
+**Short answer:** Yes, and you should — both as a migration technique and, for many products, as the permanent architecture.
+
+## During migration: shadow-write
+
+**The primary serves the user. The shadow result is discarded.**
+
+<Warning>
+The shadow call must be **asynchronous and fire-and-forget.** If it can affect production latency, you have built a second point of failure to test the first.
+</Warning>
+
+**Feature-flag per endpoint, not per user.**
+
+A percentage rollout across a routing engine gives you two populations with different route quality and no way to attribute an incident. A rollback should be one flag, one surface, no deploy.
+
+**Compare offline, against ground truth.** Not against each other. Two wrong answers can agree.
+
+**Keep both live for at least one full business cycle after cutover.** Two invoices for a month is cheaper than one incident. You're not testing the happy path — you're waiting for the edge case that only occurs on the last Friday of the month.
+
+## Permanently: the hybrid
+
+<Info>
+**The best architecture for many products is both.**
+
+Google for consumer-facing place search and autocomplete. HERE for routing, matrix operations, batch geocoding, and truck constraints.
+
+Nothing requires vendor monogamy, and the split follows the strengths cleanly.
+</Info>
+
+**Why:** Google's business POI database — hours, reviews, photos, categories — is categorically better than HERE's. Placematic sells HERE. We'd rather you know now than after a migration.
+
+**Why:** HERE expresses commercial vehicle constraints that Google does not, and does not expose the underlying road attributes either. You cannot implement them yourself.
+
+**Document the split as a decision**, in writing, before someone frames a deliberate hybrid as a failed migration.
+
+## What running both costs
+
+Two contracts. Two invoices. Two support paths. Two free tiers that don't pool.
+
+Real overhead. For a small team it may exceed the benefit. For a fleet platform where the map is customer-facing and the routing is safety-critical, it does not.
+
+## The one thing you must not do
+
+<Warning>
+**Never fail over from constrained HERE truck routing to unconstrained Google routing.**
+
+It produces a route a truck cannot drive, in a system that believes it degraded gracefully.
+
+**Refuse to route instead.** A dispatcher calling operations is a better outcome than a driver following a route through a low bridge.
+</Warning>
+
+## What genuinely fails over
+
+- **Tiles.** A CDN with a secondary origin. Users see a map.
+- **Geocoding.** A cached result, or a stale coordinate with a warning.
+- **Serviceability checks.** Materialized polygons in your own database. Neither vendor being up is relevant.
+
+## Common misconceptions
+
+**"A hybrid is a failed migration."**
+It's a decision. Write it down before someone else characterizes it.
+
+**"Dual-running is expensive."**
+Shadow traffic doubles call volume for its duration. Budget for it, and say so.
+
+**"I'll compare Google's answer to HERE's."**
+Compare both against telematics ground truth. Two wrong answers can agree.
+
+**"Percentage rollout is standard practice."**
+Standard for buttons. Wrong for routing engines.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Google Migration Architecture" href="/architecture/google-migration-architecture">
+    Shadow-write, per-endpoint flags, tested rollback.
+  </Card>
+  <Card title="Migrating One Endpoint" href="/examples/google-migration">
+    The shadow implementation, in code.
+  </Card>
+  <Card title="HERE vs Google Maps" href="/comparisons/here-vs-google-maps">
+    Where each genuinely wins.
+  </Card>
+  <Card title="How do I validate the migration?" href="/faq/how-do-i-validate-the-migration">
+    Ground truth, distributions, gates.
+  </Card>
+</CardGroup>
+
+---
+
+Need production HERE API keys or implementation support? Placematic is an official HERE Technologies reseller and implementation partner. [Talk to us](https://placematic.com/contact/).

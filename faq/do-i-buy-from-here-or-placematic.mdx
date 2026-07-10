@@ -1,0 +1,87 @@
+---
+title: "Do I buy from HERE or Placematic?"
+description: "Direct contract or Gold Partner. When each makes sense, what a partner contract actually changes, and when you should go direct."
+---
+
+# Do I buy from HERE or Placematic?
+
+**Short answer:** Depends on your volume and your tolerance for procurement. If you're a large enterprise with a vendor management function and can meet minimum volume commitments comfortably, go direct. Otherwise a Gold Partner is usually simpler.
+
+We sell HERE. Read the "buy direct" section carefully.
+
+## What a partner contract changes
+
+**One contracting party.** Placematic USA LLC. You never open a HERE account, never receive a HERE invoice, never negotiate with HERE.
+
+**Entitlements confirmed before you build.** The `403`-in-week-six problem becomes a conversation in week one.
+
+**Pricing tiers.** Gold Partner pricing tiers are not available to direct customers at standard volume levels. Whether that beats your negotiated direct pricing is an empirical question — bring your current terms.
+
+**No minimum volume commitment for pilot access.**
+
+<Info>
+**Contractual price stability is a term in your contract, not a property of the platform.** HERE pricing through a partner does not reprice mid-term because the contract says so. Negotiate it, or don't claim it.
+</Info>
+
+## Buy direct if
+
+- You have a dedicated vendor management function and want the relationship in-house
+- You can meet minimum volume commitments comfortably
+- Your legal team prefers a direct agreement with the data provider
+- **A routing defect traced to map data needs the shortest possible escalation path.** Through a partner, that path is one hop longer. Whether that matters depends on whether a wrong route is an inconvenience or a bridge strike.
+
+## Buy through a Gold Partner if
+
+- You want partner pricing tiers
+- You don't want to negotiate volume minimums
+- You want one contract, one invoice, and someone accountable for the *integration* working — not just for the API being up
+- Entitlement and licensing questions should be resolved before your sprint starts
+- You're embedding HERE in a product you sell, and the **redistribution** question needs answering
+
+## The redistribution question
+
+<Warning>
+Exposing HERE APIs to *your* customers may constitute redistribution, which carries different licensing terms than internal use.
+
+There's a spectrum. **Internal consumption** — your platform calls HERE, renders a map, shows an ETA. **Pass-through** — your API returns HERE's response shape to your customer's engineers. **Redistribution** — your customer builds against what is effectively a HERE proxy.
+
+The further right you sit, the more likely you need explicit terms. **Resolve this before you build.** Discovering it during a customer's security review is expensive.
+</Warning>
+
+This is the single clearest reason to have a Gold Partner conversation early. It's a short conversation when the partner is the contracting party.
+
+## Common misconceptions
+
+**"A reseller is a markup."**
+Gold Partner tiers exist because HERE prices differently at partner volume. Whether that's better *for you* depends on your negotiated direct terms. Bring them.
+
+**"Going through a partner means slower support."**
+It means a different support path. For licensing, entitlement, and integration questions it's faster. For a map data defect, it's one hop longer.
+
+**"I can compare on rate cards."**
+Entry-level rates are close. Call mix, tier placement, batching, and caching determine your bill. See [What drives my API bill?](/faq/what-drives-my-api-bill)
+
+## If you already license HERE directly
+
+Bring your current pricing. We'll tell you honestly whether we can improve it. Sometimes the answer is no.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="HERE Pricing Explained" href="/start-here/here-pricing-explained">
+    Call volume vs asset-based, and free bundles that don't pool.
+  </Card>
+  <Card title="Embedding a Routing API" href="/use-cases/embedding-routing-api">
+    Multi-tenancy, quota, and the redistribution question in full.
+  </Card>
+  <Card title="Multi-Tenant Location Platform" href="/architecture/multi-tenant-location-platform">
+    Isolation, cost attribution, and the gateway you build regardless.
+  </Card>
+  <Card title="What support does Placematic provide?" href="/faq/what-support-does-placematic-provide">
+    Including what we don't.
+  </Card>
+</CardGroup>
+
+---
+
+Need production HERE API keys or implementation support? Placematic is an official HERE Technologies reseller and implementation partner. [Talk to us](https://placematic.com/contact/).

@@ -1,0 +1,93 @@
+---
+title: "How hard is it to migrate from Google Maps?"
+description: "Varies enormously by surface. Batch geocoding is a sprint. Rendering is a rewrite. Migrate one at a time."
+---
+
+# How hard is it to migrate from Google Maps?
+
+**Short answer:** Depends entirely on which surface. Batch geocoding is often a sprint. Rendering, if you're on the Google Maps JS SDK, is a rewrite of that layer.
+
+Migrate one surface. Stabilize. Then the next.
+
+## By surface, ascending
+
+| Surface | Effort | Why |
+|---|---|---|
+| **Batch geocoding** | Low | No UI. If it breaks, you fix a nightly job. Largest saving |
+| Telematics reverse geocoding | Low | Backend, high volume, no user-facing risk |
+| Matrix operations | Medium | Flat row-major arrays. Async job lifecycle |
+| Routing | Medium–high | Quality validation required, not just cost |
+| Autocomplete | Medium | User-facing. Be honest about quality |
+| Rendering | High | Most visible. Tile aesthetics differ. Migrate last |
+| Mobile SDK | High | Separate entitlement. Binary size. Offline strategy |
+
+<Warning>
+**Never migrate two surfaces simultaneously.** Two independent changes, one production incident, ambiguous root cause. You will spend more on the investigation than you saved that month.
+</Warning>
+
+## But optimize first
+
+<Warning>
+Migrating an uncached, undebounced implementation to a cheaper provider **moves the waste to a cheaper meter.** You will save money and still be wrong.
+</Warning>
+
+Cache geocoding. Batch what tolerates latency. Debounce autocomplete. Deduplicate. Stop reverse-geocoding every GPS ping. CDN in front of tiles.
+
+Re-measure. A meaningful share of teams find the bill halves without a vendor change. **What remains is your real migration case.**
+
+## The mechanical differences that bite
+
+**Coordinate order.** HERE Routing takes `lat,lng`. GeoJSON is `lng,lat`. Once, at 2am.
+
+**Country codes.** Google uses ISO alpha-2 (`US`). HERE uses alpha-3 (`USA`). A naive port silently filters to nothing.
+
+**`200` is not success.** HERE returns HTTP `200` with an empty `routes` array and a `notice` when no path exists.
+
+**`403` ≠ `401`.** Valid key, missing entitlement. Never retry.
+
+**Matrix results are flat, row-major.** Index wrong and you get a silently transposed matrix — plausible times, wrong assignments, nothing throws.
+
+**Batch is a job lifecycle**, not a bulk endpoint.
+
+**Confidence scores are not comparable.** `queryScore: 0.9` does not mean what `partial_match: false` means. Recalibrate against your own ground truth. **Do not port the threshold.**
+
+## The hidden cost
+
+**Migration engineering time is a real line item.**
+
+If the payback period exceeds eighteen months, the savings argument is weaker than the headline number. **Say so before your CFO does.** It costs you one migration and buys credibility for the ones worth doing.
+
+## Common misconceptions
+
+**"It's a config change."**
+`google.maps.*` in your React components is not a config change.
+
+**"We should migrate everything."**
+Usually not. Routing and batch geocoding to HERE, consumer place search stays on Google, is a common and sensible endpoint.
+
+**"The response schemas are similar."**
+They're mechanically different throughout. Not hard work. Not zero.
+
+**"Tile styling is cosmetic."**
+It is, until the product review. Show design the maps before you commit.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Google Migration Architecture" href="/architecture/google-migration-architecture">
+    Dual-running, shadow comparison, rollback.
+  </Card>
+  <Card title="Migrating from Google Maps" href="/guides/google-migration">
+    Endpoint mapping and sequencing.
+  </Card>
+  <Card title="Migrating One Endpoint" href="/examples/google-migration">
+    A real geocoding migration, request by request.
+  </Card>
+  <Card title="Reducing Google Maps Costs" href="/use-cases/reducing-google-maps-costs">
+    Optimize first. You may not need to migrate.
+  </Card>
+</CardGroup>
+
+---
+
+Need production HERE API keys or implementation support? Placematic is an official HERE Technologies reseller and implementation partner. [Talk to us](https://placematic.com/contact/).

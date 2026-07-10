@@ -1,0 +1,87 @@
+---
+title: "How do I get a HERE API key?"
+description: "Two paths: self-serve on HERE's portal, or partner-issued with entitlements confirmed for your use case. The difference matters more than the speed."
+---
+
+# How do I get a HERE API key?
+
+**Short answer:** Sign up on HERE's developer portal, or get credentials issued through a Gold Partner. The self-serve path is faster. The partner path tells you, before you build, whether your key covers the API you're about to depend on.
+
+## The longer version
+
+**Self-serve.** Create a HERE platform account, register an app, generate a key. Minutes. You get a key against the free tier.
+
+<Warning>
+**Raster Tile API v3 requires a HERE *platform* account.** Older HERE *developer* account keys do not work against it. This trips up teams following 2021 tutorials.
+</Warning>
+
+**Partner-issued.** You describe what you're building — not "we need mapping," but "truck routing for an ELD platform" — and receive keys with the relevant entitlements enabled.
+
+## Why entitlement matters more than speed
+
+**Not every HERE API is in the free tier.** Entitlements vary by account type.
+
+A team can build a working prototype, present it to leadership, get approval, and only then discover the specific API their product depends on carries different terms in a production contract.
+
+<Warning>
+**Verify each API you plan to use, individually, before sprint planning.** One `curl` per endpoint. Ten minutes. It will save you a quarter.
+
+`200` = valid key, entitled.
+`401` = wrong key.
+`403` = right key, **missing entitlement**. Retrying is futile.
+
+Learn to tell these apart on day one.
+</Warning>
+
+Truck routing inclusion in the free tier specifically should be confirmed against your account before you scope a pilot around it. Do not assume from general documentation.
+
+## Common misconceptions
+
+**"Free tier is a production sandbox."**
+It's a rate-limited product boundary. If you exceed it in staging, you'll exceed it in production.
+
+**"One key covers web and mobile."**
+Web tile access and mobile SDK access are **separate entitlements**. Discovering this at app store submission is expensive.
+
+**"`403` is a transient error."**
+It will never succeed on retry. It's a commercial conversation, not a technical one.
+
+**"I need my own HERE account to use HERE."**
+Not if you license through a Gold Partner. Placematic USA LLC becomes the contracting party.
+
+## Do this before you write code
+
+```bash
+# Does this key route trucks?
+curl -gX GET 'https://router.hereapi.com/v8/routes' \
+  --data-urlencode 'transportMode=truck' \
+  --data-urlencode 'origin=42.0641,-88.0509' \
+  --data-urlencode 'destination=41.5250,-88.0817' \
+  --data-urlencode 'vehicle[height]=410' \
+  --data-urlencode "apiKey=${HERE_API_KEY}" -G
+```
+
+Repeat for every endpoint in your design. `403` on any of them is information you want in week one, not week six.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Getting a HERE API Key" href="/start-here/getting-a-here-api-key">
+    Sandbox vs production, entitlements, and confirming coverage.
+  </Card>
+  <Card title="Authentication" href="/start-here/authentication">
+    Key handling, rotation without downtime, error semantics.
+  </Card>
+  <Card title="How do I handle rate limits?" href="/faq/how-do-i-handle-rate-limits">
+    `429` and `403` are different problems.
+  </Card>
+  <Card title="Do I buy from HERE or Placematic?" href="/faq/do-i-buy-from-here-or-placematic">
+    The commercial paths, honestly compared.
+  </Card>
+</CardGroup>
+
+**HERE documentation:** [Identity and Access Management](https://www.here.com/docs)
+
+---
+
+Need production HERE API keys or implementation support? Placematic is an official HERE Technologies reseller and implementation partner. [Talk to us](https://placematic.com/contact/).

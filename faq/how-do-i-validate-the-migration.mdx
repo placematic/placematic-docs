@@ -1,0 +1,120 @@
+---
+title: "How do I validate the migration?"
+description: "Against ground truth, not against each other. Report distributions, not means. And for truck routing, the comparison is a gate, not a metric."
+---
+
+# How do I validate the migration?
+
+**Short answer:** Replay real production traffic through both platforms, compare each against **ground truth**, and report the distribution of the error — not the mean.
+
+<Warning>
+**Do not compare the providers against each other.** Two wrong answers can agree.
+</Warning>
+
+## Why error rates won't tell you
+
+The failure modes are subtle and delayed.
+
+A truck route that omits a constraint returns `200` and looks correct in a diff. A silently transposed matrix produces plausible travel times and wrong assignments. A geocode that falls back to a city centroid renders as a pin on a map.
+
+**Everything succeeds.** You will not notice the regression by watching error rates.
+
+<Warning>
+The most dangerous migration outcome is not an outage. It is a system that works, is cheaper, and is quietly wrong in ways that surface as operational incidents six weeks later, with no clear cause.
+</Warning>
+
+## What to compare against
+
+| Surface | Ground truth |
+|---|---|
+| Route duration | Actual driven duration, from telematics |
+| Route distance | Actual driven distance |
+| Route geometry | Actual driven path, map-matched |
+| Geocode | A held-out set with verified rooftop coordinates |
+| Matrix | Sampled cells, validated against single-route calls |
+| **Truck routes** | **Trap geometry — pass/fail** |
+
+## Report distributions, not means
+
+```sql
+SELECT provider,
+  percentile_cont(0.50) WITHIN GROUP (ORDER BY error) AS p50,
+  percentile_cont(0.90) WITHIN GROUP (ORDER BY error) AS p90,
+  percentile_cont(0.99) WITHIN GROUP (ORDER BY error) AS p99
+FROM comparison GROUP BY provider;
+```
+
+<Tip>
+A platform whose durations are unbiased **on average** but have twice the variance produces twice as many late deliveries.
+
+The mean will tell you nothing about that. **p99 is where failed deliveries live.**
+</Tip>
+
+## Measure confidence calibration
+
+The metric almost nobody measures, and the one that determines data quality.
+
+**Among results the platform scored above 0.9, what fraction were actually correct?**
+
+A geocoder with a *lower* match rate and well-calibrated confidence is more useful than one with a higher match rate and confidence that doesn't predict correctness. The first lets you route uncertain records to an exception queue. The second silently corrupts your database.
+
+<Warning>
+**Do not port your confidence threshold across platforms.** `queryScore: 0.9` does not mean what `partial_match: false` means. Recalibrate against your own ground truth.
+</Warning>
+
+## Truck routing is a gate, not a metric
+
+Route a 410 cm vehicle through the 11foot8 bridge (Durham NC), Storrow Drive (Boston), and the Southern State Parkway (Long Island).
+
+**Any path returned is a failure.**
+
+Run the same three in `car` mode as a control. All three must route — proving the test exercises the constraint rather than failing for an unrelated reason.
+
+**Keep these assertions in CI permanently**, not just during migration. A refactor that drops `vehicle[height]` is invisible in code review.
+
+## Test the rollback
+
+<Warning>
+**A migration you cannot reverse is not a migration. It is a bet.**
+
+Write the rollback procedure. Then execute it once in production, deliberately, during a low-traffic window. Flip the flag. Verify traffic moves. Flip it back.
+
+An untested rollback is a hypothesis.
+</Warning>
+
+If rollback takes twenty minutes, nobody will pull the trigger during an incident. They will debug forward, badly, at 2am.
+
+## Common misconceptions
+
+**"Cost validation is enough."**
+A cheaper wrong route is worse than an expensive right one.
+
+**"We'll compare the two providers."**
+Against ground truth. Two wrong answers agree.
+
+**"The mean error looks fine."**
+Report p90 and p99.
+
+**"We'll delete the trap tests after cutover."**
+They're the thing that catches the refactor two years from now.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Google Migration Architecture" href="/architecture/google-migration-architecture">
+    Shadow comparison, per-endpoint flags, tested rollback.
+  </Card>
+  <Card title="How do I test before production?" href="/faq/how-do-i-test-before-production">
+    Entitlement checks and trap geometry.
+  </Card>
+  <Card title="HERE Geocoding vs Google" href="/comparisons/here-geocoding-vs-google-maps">
+    How to benchmark on your own address dataset.
+  </Card>
+  <Card title="Truck Routing" href="/guides/truck-routing">
+    The trap geometry, in detail.
+  </Card>
+</CardGroup>
+
+---
+
+Need production HERE API keys or implementation support? Placematic is an official HERE Technologies reseller and implementation partner. [Talk to us](https://placematic.com/contact/).

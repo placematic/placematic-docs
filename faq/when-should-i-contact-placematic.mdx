@@ -1,0 +1,91 @@
+---
+title: "When should I contact Placematic?"
+description: "Before you scope the sprint, not after. And several cases where you shouldn't bother."
+---
+
+# When should I contact Placematic?
+
+**Short answer:** When the question is commercial — entitlements, contracts, redistribution, pricing tiers. Not when the question is architectural, because those answers are in these docs.
+
+## Contact us before
+
+**You scope a sprint around an API.** Ten minutes confirming entitlement beats a quarter discovering a `403`.
+
+**You build a business case on asset-based pricing.** Availability depends on contract tier. Confirm before it's load-bearing in front of your CFO.
+
+**You embed HERE into a product you sell.** The redistribution question carries different licensing terms than internal use. Resolve it before you ship, not during a customer's security review.
+
+**You design a permanent geocode cache.** Retention of geocoded coordinates is a contract term. Get it in writing.
+
+**You plan a mobile release.** Web tile access and mobile SDK access are separate entitlements. Discovering this at app store submission is expensive.
+
+**You want a cost evaluation.** Bring per-endpoint call counts from your logs. Not estimates.
+
+**You already license HERE directly** and want to know whether a partner contract improves your terms. Bring the contract.
+
+## Don't contact us for
+
+<Info>
+Most of what determines whether your location platform succeeds does not require a vendor conversation.
+</Info>
+
+**"How do I reduce my bill?"**
+Cache geocoding. Batch what tolerates latency. Debounce autocomplete. Deduplicate. Stop reverse-geocoding GPS packets. Replace routing loops with matrix calls.
+
+Do that first, re-measure, and then the conversation is worth having. See [Cost Optimization Patterns](/architecture/cost-optimization-patterns).
+
+**"Should I use Routing or Matrix?"**
+If you're writing a loop, you already know. See [Routing vs Matrix](/architecture/choosing-routing-vs-matrix).
+
+**"Is HERE better than Google?"**
+For consumer place discovery, no. Categorically. See [HERE vs Google Maps](/comparisons/here-vs-google-maps).
+
+**"Should I self-host OSM instead?"**
+Maybe. Test whether the truck restriction tags exist in your operating region first. It takes an afternoon and it frequently ends the discussion. See [HERE vs OpenStreetMap](/comparisons/here-vs-openstreetmap).
+
+**"Is my architecture right?"**
+Read [Architecture](/architecture). If it still isn't clear, then ask.
+
+## And genuinely don't migrate if
+
+**Your spend is under roughly $1,000/month after optimization.** The payback period on migration engineering is measured in years. Do something else.
+
+**Your product's core value is consumer place discovery.** Keep Google.
+
+**You have no engineering capacity this quarter.** A half-finished migration is worse than either endpoint.
+
+**The only argument is "cheaper."** Cheaper on a feature that regresses is not cheaper.
+
+<Warning>
+We sell HERE. If we thought a migration would fail, telling you now costs us one deal and buys credibility for the ones worth doing.
+</Warning>
+
+## What to bring
+
+- **Per-endpoint call counts**, from logs
+- **What you're building**, specifically — vehicle class, geography, volume
+- **Your current contract**, if you have one
+- **Your worst month**, not your average
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="What support does Placematic provide?" href="/faq/what-support-does-placematic-provide">
+    Including what we don't.
+  </Card>
+  <Card title="Reducing Google Maps Costs" href="/use-cases/reducing-google-maps-costs">
+    Do this before you call anyone.
+  </Card>
+  <Card title="How do I test before production?" href="/faq/how-do-i-test-before-production">
+    Entitlement checks you can run yourself, today.
+  </Card>
+  <Card title="Do I buy from HERE or Placematic?" href="/faq/do-i-buy-from-here-or-placematic">
+    Including when to go direct.
+  </Card>
+</CardGroup>
+
+---
+
+Need production HERE API keys or implementation support?
+
+Placematic is an official HERE Technologies reseller and implementation partner. [Talk to us](https://placematic.com/contact/), or run the [Cost Reduction Audit](https://placematic.com/here-location-services/cost-reduction-audit/) first.

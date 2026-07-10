@@ -1,0 +1,98 @@
+---
+title: "How can I reduce location API costs?"
+description: "Seven patterns, ranked by the order of magnitude they move. Most teams start at number seven."
+---
+
+# How can I reduce location API costs?
+
+**Short answer:** Change the unit of work. Choose the right primitive. Materialize what doesn't move. Everything else is a constant factor.
+
+## Ranked by what they move
+
+| Rank | Pattern | Moves | Effort |
+|---|---|---|---|
+| 1 | Change the unit of work | Orders of magnitude | Low |
+| 2 | Choose the right primitive | Orders of magnitude | Low |
+| 3 | Precompute and materialize | Unbounded → bounded | Medium |
+| 4 | Cache | Large constant | Low |
+| 5 | Deduplicate | Large constant | Trivial |
+| 6 | Batch | Rate difference | Medium |
+| 7 | Trim the request | Small constant | Trivial |
+
+<Warning>
+Teams routinely start at rank 7. Setting `return` fields correctly is worth doing and **will never save a platform whose architecture calls a geocoder per GPS packet.**
+</Warning>
+
+## 1. Unit of work
+
+Geocode **events**, not packets. Debounce keystrokes at 200–300ms. Match **trips**, not points.
+
+Instrument the ratio of API calls to business events. Reverse-geocode calls ÷ detected stops should be near 1.
+
+## 2. Right primitive
+
+If you're writing a loop around a routing call, stop. You're building a cost table (Matrix) or an itinerary (Tour Planning). Both exist. Both are cheaper.
+
+## 3. Materialize
+
+Drive-time isolines around fixed locations are stable for months. A 400-store network with three delivery bands is **1,200 isoline calls per quarter** — not per session.
+
+Compute once. Store in PostGIS. Query with `ST_Contains`, forever, for free.
+
+## 4. Cache
+
+Buildings are stationary.
+
+**Normalize before hashing.** `123 Main St` and `123 Main Street` are the same address and two cache misses. Teams routinely find half their misses were the same address written three ways.
+
+<Warning>
+**Do not use a TTL on geocoding.** A thirty-day expiry invalidates a stable rooftop match for a building that has stood since 1904, and does nothing about the subdivision that opened yesterday.
+
+Invalidate on map release, low confidence, correction, or a failed delivery.
+</Warning>
+
+## 5. Deduplicate
+
+A raw order export contains enormous repetition. Geocoding four million rows containing nine hundred thousand distinct addresses bills for four million.
+
+One `SELECT DISTINCT`. Free.
+
+## 6. Batch
+
+If the result is written to a database rather than rendered to a screen, it should have been batched. Nothing is waiting for a nightly job.
+
+## 7. Trim
+
+Set `return` explicitly. Nothing consumes turn-by-turn `instructions` server-side. Put a CDN in front of tiles. Coarsen isoline resolution where nobody sees the difference.
+
+## Common misconceptions
+
+**"We need a volume discount."**
+A discount on an unbounded cost is still unbounded.
+
+**"Caching is a small optimization."**
+It's the difference between paying per order and paying per distinct customer.
+
+**"We should migrate to a cheaper vendor."**
+Fix the call pattern first, on your current platform. Re-measure. A meaningful share of teams find the bill halves without a vendor change — and now you have a clean baseline for the migration decision.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Cost Optimization Patterns" href="/architecture/cost-optimization-patterns">
+    The full taxonomy, with arithmetic.
+  </Card>
+  <Card title="Caching Geocoding Results" href="/architecture/caching-geocoding-results">
+    Normalization, invalidation, and the privacy question.
+  </Card>
+  <Card title="Delivery Zones" href="/use-cases/delivery-zones">
+    Materialization, in practice.
+  </Card>
+  <Card title="Reducing Google Maps Costs" href="/use-cases/reducing-google-maps-costs">
+    The process: instrument, fix, model.
+  </Card>
+</CardGroup>
+
+---
+
+Need production HERE API keys or implementation support? Placematic is an official HERE Technologies reseller and implementation partner. [Talk to us](https://placematic.com/contact/).

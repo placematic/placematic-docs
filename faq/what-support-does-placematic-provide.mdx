@@ -1,0 +1,71 @@
+---
+title: "What support does Placematic provide?"
+description: "Contracting, entitlements, and implementation guidance. Not a support tier, and not a substitute for HERE's own escalation path on map data."
+---
+
+# What support does Placematic provide?
+
+**Short answer:** We are the contracting party, we confirm entitlements, and we help you architect the integration. We are not a 24/7 NOC, and for a map data defect our escalation path is one hop longer than yours would be with a direct contract.
+
+## What we do
+
+**Contracting.** Placematic USA LLC is the contracting and billing party. One contract, one invoice. You never open a HERE account.
+
+**Entitlement scoping.** You tell us what you're building — "truck routing for an ELD platform," not "we need mapping" — and we enable the right products. This is where the `403`-in-week-six problem gets solved in week one.
+
+**Redistribution and licensing.** If you're embedding HERE into a product you sell, the redistribution question needs answering before you build. A Gold Partner is the right party for that conversation, and it's short when the partner holds the contract.
+
+**Implementation guidance.** Architecture review, cost modelling, migration sequencing. We've deployed HERE into production ELD systems, and much of what's in these docs came from doing it badly the first time.
+
+**Cost evaluation.** Instrument your call counts, model both commercial models, and produce a number you can defend. See [Cost Reduction Audit](https://placematic.com/here-location-services/cost-reduction-audit/).
+
+## What we don't do
+
+<Warning>
+**We are not a support tier for the HERE platform.** If HERE has an outage, we're reading the same status page you are.
+
+**We do not shorten the escalation path for map data defects.** If a route is wrong because the underlying map attribute is wrong, that's HERE's data, and a partner contract adds a hop rather than removing one.
+
+If that latency matters — if a wrong route is a bridge strike rather than an inconvenience — **that's a genuine argument for a direct contract.**
+</Warning>
+
+**We don't write your integration.** These docs exist so you don't need us to.
+
+**We don't guarantee savings.** Cost depends on your call mix, volume, region, contract, and architecture. Anyone quoting a percentage without seeing your logs is guessing.
+
+## What good engagement looks like
+
+**Week one, not week six.** Bring the entitlement questions before sprint planning. Ten minutes of `curl` against every endpoint in your design.
+
+**Bring your logs.** Per-endpoint call counts, from production, not estimates. Every useful conversation about cost starts there.
+
+**Bring your current contract**, if you already license HERE directly. We'll tell you honestly whether we can improve it. Sometimes the answer is no.
+
+## The honest framing
+
+Most of what determines whether your location platform succeeds is not the vendor.
+
+It's whether you materialized your delivery zones, cached your geocodes, and stopped reverse-geocoding every GPS packet. **None of that requires us**, and all of it is documented here.
+
+We are useful for the parts that are commercial: entitlements, contracts, redistribution, and pricing tiers you cannot access directly.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="When should I contact Placematic?" href="/faq/when-should-i-contact-placematic">
+    Including several cases where you shouldn't.
+  </Card>
+  <Card title="Do I buy from HERE or Placematic?" href="/faq/do-i-buy-from-here-or-placematic">
+    Both paths, honestly compared.
+  </Card>
+  <Card title="Can I store geocoding results?" href="/faq/can-i-store-geocoding-results">
+    The kind of question we answer before you build.
+  </Card>
+  <Card title="Cost Optimization Patterns" href="/architecture/cost-optimization-patterns">
+    Most of your savings do not require a vendor conversation.
+  </Card>
+</CardGroup>
+
+---
+
+Need production HERE API keys or implementation support? Placematic is an official HERE Technologies reseller and implementation partner. [Talk to us](https://placematic.com/contact/).

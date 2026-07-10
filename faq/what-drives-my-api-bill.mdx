@@ -1,0 +1,93 @@
+---
+title: "What drives my API bill?"
+description: "Not the rate card. The unit of work you attached the API call to."
+---
+
+# What drives my API bill?
+
+**Short answer:** The unit of work. Systems bill on the unit they call, and the default unit is nearly always too small.
+
+## The ratios that matter
+
+| Wrong unit | Right unit | Typical ratio |
+|---|---|---|
+| GPS packet | Detected stop | ~250 : 1 |
+| Keystroke | Debounced query | ~8 : 1 |
+| Order | Distinct address | ~5 : 1 |
+| Trip point | Trip | ~2,000 : 1 |
+| Page load | User action | Unbounded |
+
+<Warning>
+A vehicle emitting a position every ten seconds over a nine-hour shift produces 3,240 packets. Across 200 vehicles: **648,000 per day.**
+
+Any API call attached to a packet multiplies by that number.
+</Warning>
+
+The address is needed when a human looks at a screen, or when a stop is detected. Not at 3:47:20am on I-80.
+
+## The second driver: wrong primitive
+
+An n×m cost table costs **n·m routing calls or 1 matrix call.**
+
+A 20-depot, 500-stop assignment problem is 10,000 calls or 1. That's a complexity difference, not a rate difference. **No pricing negotiation closes it.**
+
+Where the loop hides: nearest-driver assignment, store locator ranking, territory design, freight rating, site selection, delivery zone economics. All matrices.
+
+## The third: computation vs lookup
+
+A drive-time polygon is a computation. Testing whether a point is inside it is a lookup.
+
+The first belongs to a routing API, computed quarterly. The second belongs to your database, executed millions of times, for free.
+
+<Warning>
+If your checkout serviceability check calls an isoline API, you have built a spatial database with an API bill attached.
+</Warning>
+
+## The diagnostic
+
+Instrument **API calls per business event**, per endpoint.
+
+- Reverse-geocode calls ÷ detected stops → should be near 1
+- Routing calls ÷ dispatches → should be near the number of legs
+- Geocodes ÷ orders → should approach zero
+
+<Tip>
+Total volume grows with the business. **The ratio should not.** A ratio that doubles overnight is a regression a deploy introduced, and it's visible hours before it appears on an invoice.
+
+Alert on the ratio, not the volume.
+</Tip>
+
+## Common misconceptions
+
+**"We need a better rate."**
+You're not paying too much per call. You're making the wrong number of calls.
+
+**"It's the tiles."**
+Put a CDN in front of them and find out. It's usually geocoding, reverse geocoding, or a routing loop.
+
+**"Volume tiers will fix it."**
+A discount on an unbounded cost is still an unbounded cost.
+
+**"Migrating will fix it."**
+Migrating an uncached, undebounced implementation moves the waste to a cheaper meter. You will save money and still be wrong.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Cost Optimization Patterns" href="/architecture/cost-optimization-patterns">
+    Seven patterns, ranked. Patterns 1 and 2 move exponents; the rest move constants.
+  </Card>
+  <Card title="Routing vs Matrix" href="/architecture/choosing-routing-vs-matrix">
+    The loop that looks correct and costs orders of magnitude.
+  </Card>
+  <Card title="Vehicle Tracking" href="/use-cases/vehicle-tracking">
+    648,000 packets. ~1,150 API calls.
+  </Card>
+  <Card title="Fleet Dashboard" href="/examples/fleet-dashboard">
+    The same arithmetic, in code.
+  </Card>
+</CardGroup>
+
+---
+
+Need production HERE API keys or implementation support? Placematic is an official HERE Technologies reseller and implementation partner. [Talk to us](https://placematic.com/contact/).

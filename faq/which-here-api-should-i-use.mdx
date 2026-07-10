@@ -1,0 +1,105 @@
+---
+title: "Which HERE API should I use?"
+description: "Choose by the question your system asks, not by product name. Routing, Matrix, and Tour Planning look interchangeable and are not."
+---
+
+# Which HERE API should I use?
+
+**Short answer:** Ask what question your system needs answered. The product name will follow.
+
+Choosing by product name leads teams to the wrong product, because Routing, Matrix Routing, and Tour Planning all return travel times.
+
+## The decision path
+
+Answer in order. Stop at the first match.
+
+**1. Moving a vehicle from A to B?**
+→ **Routing v8**. If it's a truck, van over 3.5t, hazmat carrier, or oversized load, `transportMode=truck` **with** the physical constraints.
+
+**2. Travel times between many origins and many destinations?**
+→ **Matrix Routing v8**. Not N routing calls. This is the highest-leverage correct choice on this page.
+
+**3. Many stops, optimal order, with constraints?**
+→ **Tour Planning v3**. Time windows, capacity, driver shifts, skills. A solver, not a router.
+
+**4. Address → coordinates?**
+→ **`/geocode`** for real-time. **Batch API v7** for anything that tolerates latency.
+
+**5. Coordinates → address?**
+→ **`/revgeocode`**, or **`POST /multi-revgeocode`** for a list.
+
+**6. Type-ahead address entry?**
+→ **`/autocomplete`**. Not `/autosuggest` — that's for places and misspellings.
+
+**7. Free-text place search?**
+→ **`/discover`** (ranked by relevance) or **`/browse`** (ranked by distance).
+
+**8. Display a map?**
+→ **Raster Tile v3**. Works with Leaflet, OpenLayers, MapLibre GL.
+
+**9. Everywhere reachable in N minutes?**
+→ **Isoline Routing v8**. Compute once, store the polygon.
+
+**10. GPS trace → road segments?**
+→ **Route Matching v8**. Essential for IFTA and speed compliance.
+
+**11. Route with charging stops?**
+→ **EV routing** — a capability within Routing v8, not a separate service.
+
+**12. Location where GPS is unreliable?**
+→ **Positioning**. Most teams never need this.
+
+## The distinction that costs the most
+
+| | Routing | Matrix | Tour Planning |
+|---|---|---|---|
+| **Question** | How do I get from A to B? | What are the times between all these? | What order should I visit these stops? |
+| **Output** | A path | A table | An itinerary |
+| **Calls** | 1 per route | 1 per matrix | 1 per optimization |
+| **Wrong use** | Building a matrix from it | Building an itinerary from it | Using it for A→B |
+
+<Warning>
+**If you find yourself writing a loop around the Routing API, stop.**
+
+You are building either a matrix or an optimizer. Both exist. Both are cheaper than your loop. A 20×500 problem is 10,000 routing calls or 1 matrix call.
+</Warning>
+
+## Common misconceptions
+
+**"`/geocode` can find restaurants."**
+It resolves addresses. Place search is `/discover`.
+
+**"`/autocomplete` and `/autosuggest` are the same."**
+Autocomplete completes *addresses*. Autosuggest handles misspellings and suggests *places*. Wrong choice produces a type-ahead that feels broken to users and correct to engineers.
+
+**"Reverse geocoding tells me which road the vehicle drove."**
+It returns a nearby address. Only Route Matching returns segments, and only Route Matching survives an audit.
+
+**"Isolines answer 'which store serves this customer.'"**
+Two stores' 20-minute polygons overlap. Assign by travel time from a matrix. Isolines define coverage; matrix defines assignment.
+
+**"I have to pick one vendor for everything."**
+No. Keep Google for consumer place discovery. Move routing and batch geocoding to HERE. That's a decision, not a compromise.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Choosing the Right HERE APIs" href="/start-here/choosing-the-right-here-apis">
+    The full decision tree, by use case.
+  </Card>
+  <Card title="Routing vs Matrix" href="/architecture/choosing-routing-vs-matrix">
+    Why engineers write the loop, and how to catch it.
+  </Card>
+  <Card title="Should I use Routing or Matrix?" href="/faq/should-i-use-routing-or-matrix">
+    The short version.
+  </Card>
+  <Card title="Geocoding and Search" href="/guides/geocoding">
+    Seven endpoints, one correct choice per job.
+  </Card>
+</CardGroup>
+
+**HERE documentation:** [HERE Technologies documentation](https://www.here.com/docs)
+
+---
+
+Need production HERE API keys or implementation support? Placematic is an official HERE Technologies reseller and implementation partner. [Talk to us](https://placematic.com/contact/).

@@ -1,0 +1,138 @@
+---
+title: "FAQ"
+description: "Direct answers to the questions engineers actually ask before choosing HERE Location Services — including the ones where the answer is 'it depends on your contract.'"
+---
+
+# FAQ
+
+Short answers. Where a topic needs depth, we link to it rather than repeating it.
+
+<Info>
+**Some answers depend on your contract, not on the platform.**
+
+Pricing, entitlements, service limits, caching rights, and redistribution terms vary by plan, region, and agreement. Where that is true, we say so rather than presenting one plan's behaviour as universal.
+
+If an answer here contradicts your contract, your contract is right.
+</Info>
+
+## Getting started
+
+<CardGroup cols={2}>
+  <Card title="What is HERE Location Services?" href="/faq/what-is-here-location-services">
+    A platform of ~two dozen APIs, priced separately, with different maturity levels.
+  </Card>
+  <Card title="How do I get a HERE API key?" href="/faq/how-do-i-get-a-here-api-key">
+    Two paths. One is fast and unentitled; one is scoped to what you'll ship.
+  </Card>
+  <Card title="Do I buy from HERE or Placematic?" href="/faq/do-i-buy-from-here-or-placematic">
+    Direct, or through a Gold Partner. Honest trade-offs both ways.
+  </Card>
+  <Card title="Which HERE API should I use?" href="/faq/which-here-api-should-i-use">
+    Choose by the question your system asks, not by product name.
+  </Card>
+</CardGroup>
+
+## Pricing
+
+<CardGroup cols={2}>
+  <Card title="How much does HERE cost?" href="/faq/how-much-does-here-cost">
+    Depends on API mix, volume, region, contract, and whether you batched.
+  </Card>
+  <Card title="What drives my API bill?" href="/faq/what-drives-my-api-bill">
+    Not the rate card. The unit of work.
+  </Card>
+  <Card title="How can I reduce location API costs?" href="/faq/how-can-i-reduce-location-api-costs">
+    Seven patterns, ranked by the order of magnitude they move.
+  </Card>
+  <Card title="Is HERE cheaper than Google?" href="/faq/is-here-cheaper-than-google">
+    Sometimes. Usually not for the reason you think.
+  </Card>
+  <Card title="How does billing work?" href="/faq/how-does-billing-work">
+    Call volume vs asset-based. Free bundles that don't pool.
+  </Card>
+</CardGroup>
+
+## Technical
+
+<CardGroup cols={2}>
+  <Card title="Routing or Matrix?" href="/faq/should-i-use-routing-or-matrix">
+    If you're writing a loop, you already know the answer.
+  </Card>
+  <Card title="When should I cache results?" href="/faq/when-should-i-cache-results">
+    Almost always. Buildings are stationary.
+  </Card>
+  <Card title="Can I store geocoding results?" href="/faq/can-i-store-geocoding-results">
+    A contract question with architectural consequences. Get it in writing.
+  </Card>
+  <Card title="How do I handle rate limits?" href="/faq/how-do-i-handle-rate-limits">
+    `429` backs off. `403` never succeeds. They are not the same problem.
+  </Card>
+  <Card title="How do I test before production?" href="/faq/how-do-i-test-before-production">
+    Trap geometry, in CI, with a control.
+  </Card>
+</CardGroup>
+
+## Migration
+
+<CardGroup cols={2}>
+  <Card title="How hard is it to migrate from Google?" href="/faq/how-hard-is-it-to-migrate-from-google">
+    Varies by surface. Geocoding is a sprint. Rendering is a rewrite.
+  </Card>
+  <Card title="Do I have to change my data model?" href="/faq/do-i-have-to-change-my-data-model">
+    Yes, in one specific way. It's the way migrations fail.
+  </Card>
+  <Card title="Can I run Google and HERE in parallel?" href="/faq/can-i-run-google-and-here-in-parallel">
+    You should. And you may want to stay that way.
+  </Card>
+  <Card title="How do I validate the migration?" href="/faq/how-do-i-validate-the-migration">
+    Against ground truth, not against each other.
+  </Card>
+</CardGroup>
+
+## Fleet and logistics
+
+<CardGroup cols={2}>
+  <Card title="Does HERE support truck routing?" href="/faq/does-here-support-truck-routing">
+    Yes — and setting `transportMode=truck` is not how you use it.
+  </Card>
+  <Card title="How does HERE handle hazmat?" href="/faq/how-does-here-handle-hazmat">
+    Cargo type and tunnel category are different parameters.
+  </Card>
+  <Card title="How accurate are ETAs?" href="/faq/how-accurate-are-etas">
+    The routing duration is usually fine. Your ETA is wrong for other reasons.
+  </Card>
+  <Card title="Can I build an ELD platform?" href="/faq/can-i-build-an-eld-platform">
+    Yes. Reverse geocoding will not survive the audit.
+  </Card>
+</CardGroup>
+
+## Licensing and support
+
+<CardGroup cols={2}>
+  <Card title="What support does Placematic provide?" href="/faq/what-support-does-placematic-provide">
+    Contracting, entitlements, and implementation. Not a support tier.
+  </Card>
+  <Card title="When should I contact Placematic?" href="/faq/when-should-i-contact-placematic">
+    Including several cases where you shouldn't.
+  </Card>
+</CardGroup>
+
+## The four questions behind most of these
+
+If you read nothing else:
+
+**What is the unit of work?** A GPS packet is not an event. A keystroke is not a query. An address is not an order. Systems bill on the unit they call, and the default unit is nearly always too small.
+
+**Is this computation or lookup?** A drive-time polygon is a computation, done quarterly. Testing whether a point is inside it is a lookup, done millions of times, in your own database, for free.
+
+**What is the latency budget, honestly?** Nothing is waiting for a nightly geocoding job.
+
+**Where does the constraint live?** A truck's height is a property of the truck. Constraints that live in request builders get dropped in refactors, silently, and the response still returns `200`.
+
+See [Architecture](/architecture).
+
+---
+
+Need production HERE API keys or implementation support?
+
+Placematic is an official HERE Technologies reseller and implementation partner. [Talk to us](https://placematic.com/contact/).

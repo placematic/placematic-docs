@@ -217,13 +217,20 @@ This trips up nearly every first integration.
 </Warning>
 
 ## The async lifecycle
+
+```text
 POST /v3/problems/async
-→ { statusId, href }              ← persist BOTH, nowGET  {href}                          ← poll. Use the returned href.
-→ { status: "pending" | "inProgress" }
-→ { status: "success", resource: { href } }
-→ { status: "timeout" }            ← tuning signal, not an error
-→ { status: "failure" }GET  {resource.href}                 ← the solution
-**`timeout` means the solver did not converge within `maxTime`.** Raise it, or reduce problem size. It is not a bug.
+-> response contains statusId and href; persist both immediately
+
+GET the returned href
+-> status: pending or inProgress
+-> status: success, with a resource href
+-> status: timeout
+-> status: failure
+
+GET the returned resource href
+-> solution payload
+```
 
 ## Unassigned jobs
 

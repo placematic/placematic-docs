@@ -1,0 +1,105 @@
+---
+title: "Should I use Routing or Matrix?"
+description: "If you're writing a loop, you already know. One rule catches almost every error."
+---
+
+# Should I use Routing or Matrix?
+
+**Short answer:** Routing returns a **path**. Matrix returns a **cost table**. If you're discarding the path and reading only `duration`, you asked the wrong question.
+
+## One rule
+
+<Warning>
+**If you are writing a loop around a routing call, stop.**
+
+You are building either a cost table (Matrix) or an itinerary (Tour Planning). Both exist. Both are cheaper.
+</Warning>
+
+## The arithmetic
+
+An n×m cost table costs **n·m routing calls** or **1 matrix call**.
+
+A 20-depot, 500-stop assignment problem is **10,000 calls or 1.**
+
+That's a complexity difference, not a rate difference. **No pricing negotiation closes it.**
+
+## Where the loop hides
+
+- Nearest-driver assignment — one call per available driver
+- Store locator ranking — one per candidate store
+- Territory design — one per rep-base × unit centroid
+- Delivery zone economics — one per zone per candidate
+- Freight rating — one per lane, per quote, uncached
+- Site selection — one per demand cell per candidate
+
+**All matrices.**
+
+## Why the mistake is systemic, not careless
+
+**Routing is discoverable first.** It's what you reach for when you need a travel time.
+
+**The loop works.** Correct answers. No error, no warning, no degradation.
+
+**The failure is asymptotic.** At five stops it's imperceptible. Growth rates are invisible in a code review of the diff that introduced them.
+
+**Matrix is async at scale.** Submit-poll-retrieve is more code and more state. Engineers optimizing for the shortest path to a green test choose synchronous.
+
+**The response shape is unfamiliar.** Flat, row-major arrays — `travelTimes: [73, 1231, 983, 400]` for a 2×2 — not nested objects.
+
+<Info>
+None of these are unreasonable. Naming the pattern explicitly in your architecture review is worth more than any amount of documentation.
+</Info>
+
+## The inverse error
+
+**Matrix returns no geometry.** If a driver follows it, you needed Routing.
+
+## Size ceilings vary by mode
+
+<Warning>
+There is no single "HERE matrix size limit."
+
+| Mode | Sync | Async | Live traffic + custom options |
+|---|---|---|---|
+| Flexible | 15×100 | 15×100 | Yes |
+| Region (≤400 km) | 500×500 | 10,000×10,000 | Yes |
+| Profile | 500×500 | 10,000×10,000 | **No** |
+
+**A truck-constrained matrix with live traffic runs in Flexible mode and caps at 15 × 100.**
+
+"5,000 × 5,000" corresponds to no documented limit. Read the [spec](https://matrix.router.hereapi.com/v8/openapi).
+</Warning>
+
+## Common misconceptions
+
+**"I'll parallelize the loop."**
+You've converted a cost problem into a `429` problem.
+
+**"Matrix is only for huge problems."**
+A 1×10 store ranking is one matrix call instead of ten routing calls. The ratio holds at every scale.
+
+**"The flat array is just a format detail."**
+Index it wrong and you get a **silently transposed matrix**. Every travel time is plausible. Every assignment is wrong. Nothing throws.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Routing vs Matrix" href="/architecture/choosing-routing-vs-matrix">
+    The full decision tree, and the indexing helper you write once.
+  </Card>
+  <Card title="Matrix Routing" href="/guides/matrix-routing">
+    Modes, async lifecycle, per-cell error codes.
+  </Card>
+  <Card title="Distance Matrix" href="/examples/distance-matrix">
+    Working code, with the indexing helper.
+  </Card>
+  <Card title="Fleet Routing" href="/use-cases/fleet-routing">
+    Where the matrix feeds the solver.
+  </Card>
+</CardGroup>
+
+**HERE documentation:** [Matrix Routing v8 OpenAPI specification](https://matrix.router.hereapi.com/v8/openapi)
+
+---
+
+Need production HERE API keys or implementation support? Placematic is an official HERE Technologies reseller and implementation partner. [Talk to us](https://placematic.com/contact/).

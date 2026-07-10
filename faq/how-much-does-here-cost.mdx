@@ -1,0 +1,94 @@
+---
+title: "How much does HERE cost?"
+description: "Nobody can answer this without knowing your call mix. Here's what determines it, and how to produce a number you can defend."
+---
+
+# How much does HERE cost?
+
+**Short answer:** Nobody — including us — can answer this without knowing which APIs you call, how many times, in which region, under which contract, and whether you batch and cache.
+
+Those variables span more than an order of magnitude. Anyone giving you a number without asking is guessing.
+
+<Warning>
+**We do not publish a savings percentage.**
+
+Cost depends on API mix, monthly volume, region, contract terms, billing SKU, batching, and architecture. A single number claiming to summarize all of those is not a claim. It's a slogan.
+</Warning>
+
+## What determines it
+
+**Which APIs.** Every API is a separate meter. Routing, geocoding, tiles, matrix, tour planning. No bundle.
+
+**How many calls.** Not how many *orders* or *vehicles* — how many calls. These diverge wildly. A 200-truck fleet at a 10-second ping rate produces 648,000 packets a day. Whether that's 648,000 API calls or 1,150 is an architecture decision.
+
+**Volume tier.** Rates drop as volume rises. Routing sees the steepest curve.
+
+**Free bundles.** Per-API. They do not pool. Exhausting routing does not consume geocoding.
+
+**Which commercial model.** Call volume, or asset-based (per tracked vehicle per month).
+
+<Info>
+Asset-based pricing availability depends on contract tier. Confirm it before it becomes load-bearing in a business case presented to your CFO.
+</Info>
+
+**Whether you batched.** Batch geocoding is cheaper per record than real-time. If the result is written to a database rather than rendered to a screen, it should have been batched.
+
+**Whether you cached.** Buildings are stationary. A team with a 12% geocode cache hit rate does not have a pricing problem.
+
+## How to get a defensible number
+
+1. **Instrument.** Per-endpoint call counts, per month, **from logs.** Not estimates.
+2. **Classify by latency tolerance.** What must be real-time? What could run overnight?
+3. **Identify what's cacheable.**
+4. **Separate matrix workloads from routing workloads.** If you loop routing calls to build a distance table, you have a matrix workload whichever API you currently use.
+5. **Model both commercial models** against your worst month.
+6. **Then compare vendors.** Not before.
+
+The [pricing calculator](https://placematic.com/here-location-services/here-pricing/) produces a range from volume and API type. It is a planning tool, not a quote.
+
+## Common misconceptions
+
+**"I can estimate from my Google bill."**
+No. Google bills per session where HERE bills per request, and the reverse. **The meters do not map one to one.**
+
+**"Per-1,000 rates tell me what I'll pay."**
+Entry rates are close across vendors. Your bill is set by call mix, tier, batching, and bundles.
+
+**"Growth means a proportionally bigger bill."**
+It shouldn't. Once the architecture is right, most surfaces are bounded by business numbers you already know: location count, distinct addresses, trips per day. If a line item is large and *variable*, something is calling an API where it should be reading a table.
+
+**"The free bundle scales."**
+It's a marketing boundary, not an architectural guarantee.
+
+## The forecast you want
+
+> "Our location cost is $X per thousand new distinct addresses, plus $Y per store per quarter."
+
+That's a sentence a CFO can plan against.
+
+> "It was $40k last month."
+
+That isn't.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="HERE Pricing Explained" href="/start-here/here-pricing-explained">
+    Both commercial models, and how to model your real bill.
+  </Card>
+  <Card title="What drives my API bill?" href="/faq/what-drives-my-api-bill">
+    The unit of work, not the rate card.
+  </Card>
+  <Card title="Cost Optimization Patterns" href="/architecture/cost-optimization-patterns">
+    Seven patterns, ranked by the magnitude they move.
+  </Card>
+  <Card title="Reducing Google Maps Costs" href="/use-cases/reducing-google-maps-costs">
+    Instrument, fix, then decide whether to migrate.
+  </Card>
+</CardGroup>
+
+**Placematic:** [HERE API pricing](https://placematic.com/here-location-services/here-pricing/)
+
+---
+
+Need production HERE API keys or implementation support? Placematic is an official HERE Technologies reseller and implementation partner. [Talk to us](https://placematic.com/contact/).

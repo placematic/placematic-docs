@@ -1,0 +1,120 @@
+---
+title: "How do I test before production?"
+description: "Trap geometry, in CI, with a control. And verify every entitlement with one curl before sprint planning."
+---
+
+# How do I test before production?
+
+**Short answer:** Verify entitlements with `curl` before you write code. Then assert, in CI, that a constrained truck is **refused** on known trap geometry — with a car-mode control proving the test exercises the constraint.
+
+## Step 1 — entitlement, before sprint planning
+
+One `curl` per endpoint you plan to use. Ten minutes.
+
+```bash
+curl -gX GET 'https://router.hereapi.com/v8/routes' \
+  --data-urlencode 'transportMode=truck' \
+  --data-urlencode 'origin=42.0641,-88.0509' \
+  --data-urlencode 'destination=41.5250,-88.0817' \
+  --data-urlencode 'vehicle[height]=410' \
+  --data-urlencode "apiKey=${HERE_API_KEY}" -G
+```
+
+`200` = entitled. `401` = wrong key. `403` = **right key, missing entitlement.**
+
+<Warning>
+A `403` in week one is information. A `403` in week six is a schedule failure and a credibility failure.
+</Warning>
+
+## Step 2 — trap geometry, in CI
+
+<Warning>
+**Do not ship truck routing without this test.** It is the reason bridge strikes make the news.
+</Warning>
+
+Route a 410 cm vehicle through these. **Any path returned is a failure.**
+
+| Location | Why |
+|---|---|
+| 11foot8 bridge, Durham NC | Clearance well below 4.1 m |
+| Storrow Drive, Boston MA | Commercial vehicles prohibited; low overpasses |
+| Southern State Parkway, Long Island NY | Commercial vehicles prohibited |
+
+```python
+@pytest.mark.parametrize("name,origin,dest", TRAPS)
+def test_truck_refused(name, origin, dest):
+    with pytest.raises(NoRouteError):
+        truck_route(origin, dest, TALL_TRUCK)
+
+
+@pytest.mark.parametrize("name,origin,dest", TRAPS)
+def test_car_control_routes(name, origin, dest):
+    """A car MUST route. Proves the test exercises the constraint,
+    not a bad coordinate or a network failure."""
+    car_route(origin, dest)   # must not raise
+```
+
+<Tip>
+**The car-mode control is not optional.** Without it, a test that fails because your coordinates are wrong looks identical to a test that passes because the constraint worked.
+</Tip>
+
+**Wire this into CI, not a manual QA checklist.** A refactor that drops `vehicle[height]` from a params dict is invisible in code review and obvious in a failing test.
+
+## Step 3 — watch the units
+
+<Warning>
+`vehicle[height]` is **centimetres**. `vehicle[grossWeight]` is **kilograms**.
+
+Pass `4.1` and you have declared a four-centimetre truck. It routes under every bridge in North America. The response is `200`.
+
+Units are not validated for plausibility. Validate them yourself.
+</Warning>
+
+## Step 4 — validate against ground truth, not against a competitor
+
+For routing quality: take 500 real historical trips with telematics actuals. Route them. Compare against **what the vehicle actually did**, not against another platform.
+
+Two wrong answers can agree.
+
+**Report the residual distribution — median, p90, p99 — not the mean.** A platform whose durations are unbiased on average but have twice the variance produces twice as many late deliveries.
+
+## What a sandbox key is and isn't
+
+**Sandbox and production keys are separate credentials.** Same endpoints, different quotas. Never ship a sandbox key.
+
+**A free tier is not a pilot.** A free tier is a rate-limited product boundary. A pilot is a commercial arrangement scoped to your use case, with the APIs you actually need enabled.
+
+## Common misconceptions
+
+**"I'll test truck routing manually before launch."**
+The constraint that silently disappeared in a refactor is the one that ends up in an incident report.
+
+**"Two points in a parking lot proved the constraint works."**
+Synthetic coordinates route under any constraint set. Test on geometry designed to reject you.
+
+**"200 means the route is valid."**
+`200` with an empty `routes` array means no path exists. For truck and hazmat routing, that's a correct answer.
+
+**"I'll validate on the free tier."**
+Confirm the free tier includes the API you're validating. It may not.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Truck Routing" href="/guides/truck-routing">
+    Constraints, units, and the trap geometry in detail.
+  </Card>
+  <Card title="Calculate a Truck Route" href="/examples/truck-route">
+    Working code, with the CI assertions.
+  </Card>
+  <Card title="How do I validate the migration?" href="/faq/how-do-i-validate-the-migration">
+    Ground truth, distributions, and shadow comparison.
+  </Card>
+  <Card title="Getting a HERE API Key" href="/start-here/getting-a-here-api-key">
+    Entitlements, and why `403` is a commercial conversation.
+  </Card>
+</CardGroup>
+
+---
+
+Need production HERE API keys or implementation support? Placematic is an official HERE Technologies reseller and implementation partner. [Talk to us](https://placematic.com/contact/).

@@ -1,0 +1,111 @@
+---
+title: "Can I build an ELD platform on HERE?"
+description: "Yes. And reverse geocoding will not survive the audit — only Route Matching returns the road segments a regulator will ask about."
+---
+
+# Can I build an ELD platform on HERE?
+
+**Short answer:** Yes. HERE has the two things an ELD platform requires and Google does not: commercial vehicle constraints, and **Route Matching** with a `MapVersion` in the response.
+
+## The requirement that shapes everything
+
+An ELD platform's location layer has one property that distinguishes it from every other fleet system: **a regulator may ask you to prove it.**
+
+Not "show me the route." Prove **which road segments** the vehicle travelled, on what date, against **which map**, and why you believe it.
+
+<Warning>
+[Reverse geocoding](/guides/reverse-geocoding) resolves a coordinate to a nearby address. It cannot tell you which road the vehicle drove, and **it will not survive an audit.**
+
+Only Route Matching returns segments with attributes.
+</Warning>
+
+## The audit artifact
+
+For any trip a regulator might question, you must be able to produce:
+
+1. **The raw trace** — the observations, unmodified
+2. **The matched segments** — your reconstruction
+3. **The `MapVersion`** used to produce the match
+4. **The match timestamp**
+
+<Info>
+`MapVersion` is a real field in HERE's Route Matching v8 response.
+
+A trip matched in March against map `17116` may match differently in September against a newer map. **Both can be correct.** Without recording which map produced which result, you cannot explain the discrepancy — and you will be asked to.
+</Info>
+
+**Matched output is a derivation. Keep the source.**
+
+## Three obligations, three dependencies
+
+**Hours of Service.** Drive time comes from motion. But *projected* HOS feasibility depends on the route. Change the route, change the projection.
+
+<Warning>
+**HOS and routing are coupled.** Most ELD platforms model them as independent modules. A dispatcher who reroutes at 2pm has altered the HOS projection whether or not the system says so.
+
+Test that a re-route triggers an HOS recomputation. One line. Catches a class of bug that surfaces during an audit rather than during QA.
+</Warning>
+
+**IFTA.** Miles per jurisdiction, quarterly, subject to audit. Requires matched segments.
+
+**Route planning.** Truck constraints. A route your platform produces that a driver cannot legally drive is a defect with consequences beyond the software.
+
+## Speed compliance
+
+Compare observed speed against the **matched segment's** posted limit — not the nearest road's.
+
+Nearest-road comparison produces **false violations on frontage roads parallel to highways.** Drivers notice. So do lawyers.
+
+## The cost architecture
+
+200 vehicles at a ten-second ping rate is **648,000 packets per day.**
+
+<Warning>
+**Nothing expensive touches a GPS packet on arrival.** Not geocoding. Not matching. Not routing.
+
+Store it. Detect stops locally. Geocode events. Match trips overnight.
+</Warning>
+
+Instrument the ratio of reverse-geocode calls to detected stops. It should be near 1.
+
+**Evaluate asset-based pricing.** A countable vehicle population with unpredictable call volume is exactly that model's shape.
+
+## Common misconceptions
+
+**"Reverse geocoding gives me the route."**
+It gives you addresses. Audits ask about road segments.
+
+**"Nearest-road snapping is good enough."**
+It fails at interchanges, on divided highways, and on frontage roads — precisely the geometry that generates disputed miles.
+
+**"I'll re-match for the report."**
+Re-matching six months later bills again **and** may produce a different answer against an updated map. Store the result.
+
+**"Sampling rate is a detail."**
+It's the dominant quality input, and it's a device configuration decision made before any API is called.
+
+**"Positioning APIs help here."**
+Hybrid radio positioning produces estimates with uncertainty radii. Feeding them to a map matcher produces confident nonsense.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="ELD Platform" href="/use-cases/eld-platform">
+    The full architecture, and the audit artifact.
+  </Card>
+  <Card title="Route Matching" href="/guides/route-matching">
+    Map matching, confidence, and `MapVersion`.
+  </Card>
+  <Card title="Fleet Dashboard" href="/examples/fleet-dashboard">
+    648,000 packets, ~1,150 API calls.
+  </Card>
+  <Card title="Does HERE support truck routing?" href="/faq/does-here-support-truck-routing">
+    Constraints, units, and trap geometry.
+  </Card>
+</CardGroup>
+
+**HERE documentation:** [Route Matching v8](https://www.here.com/docs/bundle/route-matching-api-developer-guide/page/README.html)
+
+---
+
+Need production HERE API keys or implementation support? Placematic is an official HERE Technologies reseller and implementation partner. We have deployed HERE into production ELD systems. [Talk to us](https://placematic.com/contact/).
