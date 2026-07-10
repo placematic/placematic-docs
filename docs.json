@@ -16,11 +16,11 @@
   "navbar": {
     "links": [
       { "label": "Placematic", "href": "https://placematic.com" },
-      { "label": "Contact", "href": "https://placematic.com/contact/" }
+      { "label": "Pricing", "href": "https://placematic.com/here-location-services/here-pricing/" }
     ],
     "primary": {
       "type": "button",
-      "label": "Get HERE API Key",
+      "label": "Get API keys",
       "href": "https://placematic.com/start-trial/"
     }
   },
