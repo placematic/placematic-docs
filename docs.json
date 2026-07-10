@@ -33,6 +33,7 @@
     "groups": [
       {
         "group": "Start here",
+        "icon": "rocket",
         "pages": [
           "index",
           "getting-started/what-is-here-location-services",
@@ -45,6 +46,7 @@
       },
       {
         "group": "Guides",
+        "icon": "book-open",
         "pages": [
           "guides/routing",
           "guides/truck-routing",
@@ -65,6 +67,7 @@
       },
       {
         "group": "Use cases",
+        "icon": "briefcase",
         "pages": [
           "use-cases/fleet-routing",
           "use-cases/logistics-platform",
@@ -90,6 +93,7 @@
       },
       {
         "group": "Architecture",
+        "icon": "diagram-project",
         "pages": [
           "architecture/index",
           "architecture/choosing-routing-vs-matrix",
@@ -103,6 +107,7 @@
       },
       {
         "group": "Comparisons",
+        "icon": "scale-balanced",
         "pages": [
           "comparisons/index",
           "comparisons/here-routing-vs-google-maps",
@@ -116,16 +121,33 @@
       },
       {
         "group": "Examples",
+        "icon": "code",
         "pages": [
-          "examples/javascript",
-          "examples/react",
-          "examples/angular",
-          "examples/python",
-          "examples/php"
+          "examples/index",
+          "examples/geocode-address",
+          "examples/batch-address-cleanup",
+          "examples/car-route",
+          "examples/truck-route",
+          "examples/distance-matrix",
+          "examples/calculate-isochrone",
+          "examples/route-matching",
+          "examples/traffic-flow",
+          "examples/tour-planning",
+          "examples/batch-geocoding",
+          "examples/ev-route",
+          "examples/reverse-geocode",
+          "examples/autocomplete-address",
+          "examples/search-poi",
+          "examples/render-map",
+          "examples/nearest-store-search",
+          "examples/store-locator",
+          "examples/fleet-dashboard",
+          "examples/google-migration"
         ]
       },
       {
         "group": "FAQ",
+        "icon": "circle-help",
         "pages": [
           "faq/here-api-key",
           "faq/here-reseller",
