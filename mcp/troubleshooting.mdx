@@ -1,0 +1,140 @@
+---
+title: "Troubleshooting"
+description: "Failure modes on the Placematic MCP Server, what each one looks like, and what actually causes it."
+---
+
+Every entry below is a failure we hit while building and deploying this server. The symptom is
+rarely descriptive, which is why the causes are written out in full.
+
+<AccordionGroup>
+
+<Accordion title="The client says it cannot reach the server, but the endpoint responds to curl">
+Most often the client is presenting a different `Host` than the one you tested. The server validates
+the hostname on every request and returns `403` for anything it does not serve, with a message
+naming the rejected host — but that message is inside the response body, and most clients surface
+only a generic connection error.
+
+Confirm the URL in the client matches exactly, including the scheme and the `/mcp` path. A connector
+configured against an older address will keep failing after the address changes.
+</Accordion>
+
+<Accordion title="The connector connects, then immediately reports a connection issue">
+The client is probing for OAuth. Before connecting, Claude and ChatGPT request
+`/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server` and `/register`.
+
+Those paths return `404` on this server, which is correct — it signals that no authorization flow is
+required. A `401` there would instead be read as "OAuth is required but you are not authenticated",
+and the client would abandon the connection.
+
+If you are proxying the endpoint through your own infrastructure, make sure your proxy does not
+convert those `404` responses into `401` or `403`. That single change breaks every connector.
+</Accordion>
+
+<Accordion title="Requests never reach the server at all">
+If the endpoint is behind a CDN or WAF configured for browser traffic, bot protection may drop
+server-to-server clients before they reach the application. MCP clients are backend HTTP clients,
+not browsers — they have no browser fingerprint and will be scored accordingly.
+
+The signature is distinctive: your own `curl` from a laptop succeeds, the client fails, and there is
+no corresponding entry in the application log because the request was terminated at the edge. Check
+the edge security event log rather than the application log.
+</Accordion>
+
+<Accordion title="jq: parse error: Invalid numeric literal at line 1, column 6">
+The response is Server-Sent Events, not bare JSON. `jq` is choking on `event: message`.
+
+Pipe through `sed` first:
+
+```bash
+curl -s ... | sed -n 's/^data: //p' | jq .
+```
+
+Requesting `Accept: application/json` alone does not fix this — it returns `Not Acceptable`. The
+`Accept` header must list both `application/json` and `text/event-stream`.
+</Accordion>
+
+<Accordion title="jq: Cannot iterate over null (null)">
+There is no `result` in the response, which means there is an `error` you are not looking at.
+Replace the filter with `jq .` to see the whole payload. The error object carries a message that
+usually names the exact problem.
+</Accordion>
+
+<Accordion title="Missing the required per-request envelope key(s): _meta">
+You are sending `MCP-Protocol-Version: 2026-07-28` with a request body that lacks the envelope that
+revision requires. In `2026-07-28` there is no `initialize` handshake — the protocol version, client
+info and client capabilities travel in `_meta` on **every** request.
+
+```json
+"params": {
+  "_meta": {
+    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+    "io.modelcontextprotocol/clientInfo": { "name": "your-client", "version": "1.0" },
+    "io.modelcontextprotocol/clientCapabilities": {}
+  }
+}
+```
+
+Real clients build this for you. It only comes up when hand-writing `curl`. The simpler option for
+a smoke test is to omit the `MCP-Protocol-Version` header entirely — the server handles the older
+protocol era, which does not require the envelope.
+</Accordion>
+
+<Accordion title="Input validation error: expected string, received undefined">
+The client is calling with an argument name the tool no longer has. Clients cache tool schemas at
+connection time and do not refresh them on their own — after a schema change, the agent keeps
+sending the old arguments indefinitely.
+
+The error message names the argument the server expects, and the agent will often try to "correct"
+itself back to the cached name, producing the same error in a loop.
+
+**Cursor and Claude Code:** restart the client.
+**Claude and ChatGPT connectors:** remove the connector and add it again. Toggling it off and on in
+a conversation does not refetch the schema.
+</Accordion>
+
+<Accordion title="The agent used its own built-in tool instead of Placematic">
+Both Claude and ChatGPT ship general-purpose place lookup. For a plain geocoding question, the model
+may well choose the built-in tool — it is not wrong to do so, and it will not tell you which one it
+used unless asked.
+
+Questions that only Placematic can answer — territory assignment, delivery terms, truck-legal
+routing with dimensions — do not have this problem, because no built-in tool covers them.
+
+If you need certainty about provenance for a given question, ask the agent to state which tool it
+used, or check the tool call record in the client.
+</Accordion>
+
+<Accordion title="A geocode returned a confident result in the wrong state">
+The address was not an address. Vague descriptors like "downtown Chicago" get tokenised, and the
+geocoder matches whatever fragment it can — in that specific case, a street in Omaha, Nebraska.
+
+Geocoding has no "I don't know" mode; it returns the best available match. Resolve vague locations
+to a city and state before calling, or ask the user which specific address they mean.
+</Accordion>
+
+<Accordion title="A truck route looks wrong or implausibly fast">
+Check whether dimensions were passed. `transport_mode: "truck"` alone selects a routing engine; it
+does not supply the vehicle profile. Without height, weight and length, the result is a generic
+truck route.
+
+The difference is measurable: for one 28-mile dispatch, adding full dimensions returned a route
+1.6 miles shorter and ten minutes slower, because it avoided roads the vehicle could not legally
+use. A dispatcher planning against the dimensionless figure is late.
+</Accordion>
+
+<Accordion title="ChatGPT does not show the developer mode option">
+On Business, Enterprise and Edu plans it is a workspace setting, not a personal one. An administrator
+enables it under **Workspace Settings → Permissions & Roles → Connected Data**. No amount of
+searching personal settings will surface it.
+
+On personal plans it is under **Settings → Apps → Advanced settings**. It is web-only — the desktop
+and mobile apps do not offer custom connectors.
+</Accordion>
+
+</AccordionGroup>
+
+## Still stuck
+
+Email `hello@placematic.com` with the request you sent, the full response body including headers,
+and the client and version. During beta, MCP Server support is best-effort and is not covered by the
+response times in the [Placematic SLA](https://placematic.com/sla/).

@@ -1,0 +1,224 @@
+---
+title: "Tool reference"
+description: "Arguments, response shapes and error behaviour for every tool the Placematic MCP Server exposes."
+---
+
+Four tools are available. Each maps to one Placematic Spatial API endpoint. Arguments below are the
+names the agent uses — they are not always the parameter names on the underlying REST call.
+
+<Note>
+An empty result is not an error. Tools that can legitimately find nothing — no address match, no
+territory covering a point — return an empty result with `isError: false`. An agent that treats
+those as failures will retry in a loop and consume transactions for nothing.
+</Note>
+
+---
+
+## `placematic_assign_territory`
+
+Determines which of your delivery territories or sales grids cover a point, which of your locations
+serve it, and on what delivery terms. Answers from your own configuration held in Placematic — not
+from postal or administrative geography.
+
+<ParamField body="x" type="number" required>
+  Longitude in decimal degrees, WGS84. **Note the axis order: `x` is longitude.** In the United
+  States this value is negative.
+</ParamField>
+
+<ParamField body="y" type="number" required>
+  Latitude in decimal degrees, WGS84.
+</ParamField>
+
+The axis naming differs from the other tools in this reference, which take `latitude` and
+`longitude`. This is the most common source of transposed coordinates when writing against the API
+directly.
+
+**Response**
+
+```json
+{
+  "territories": [
+    {
+      "id": 48303,
+      "externalId": "TRG_134046",
+      "deliveryActive": true,
+      "deliveryConditions": [{ "orderValue": 0, "deliveryPrice": 3000 }],
+      "posList": [
+        { "id": 40705, "externalId": "134046", "distance": 12143.36, "priority": 1 }
+      ]
+    }
+  ],
+  "evaluated_at": "2026-07-29T09:14:02Z"
+}
+```
+
+`deliveryPrice` and `orderValue` are integers in cents. `3000` is $30.00. There is no currency field
+in the response today; amounts are assumed to be in the currency of your Placematic contract.
+
+`distance` is in metres, straight-line from the queried point to the serving location. It is not a
+driving distance. Use `placematic_route` if driving distance matters.
+
+`evaluated_at` is the time the query ran. Territory data is live — if the configuration is edited,
+the answer changes. There is no versioned snapshot.
+
+**Empty result:** a point outside every territory returns an empty `territories` array. This is a
+valid business answer.
+
+---
+
+## `placematic_route`
+
+Road distance and driving time between two points, with a truck profile that respects vehicle
+restrictions in the HERE road network.
+
+<ParamField body="origin_latitude" type="number" required />
+<ParamField body="origin_longitude" type="number" required />
+<ParamField body="destination_latitude" type="number" required />
+<ParamField body="destination_longitude" type="number" required />
+
+<ParamField body="transport_mode" type="string" default="car">
+  `car` or `truck`. Use `truck` for any commercial goods vehicle.
+</ParamField>
+
+<ParamField body="truck_height_cm" type="integer">
+  Vehicle height in **centimetres**. A standard US semi at 13 ft 6 in is `411`.
+</ParamField>
+
+<ParamField body="truck_gross_weight_kg" type="integer">
+  Gross vehicle weight in **kilograms**. 80,000 lb is `36287`.
+</ParamField>
+
+<ParamField body="truck_length_cm" type="integer">
+  Vehicle length in **centimetres**. A 53 ft trailer combination is about `1615`.
+</ParamField>
+
+<ParamField body="truck_axle_count" type="integer">
+  Number of axles. A standard US 5-axle semi is `5`.
+</ParamField>
+
+<Warning>
+Setting `transport_mode: "truck"` selects a routing engine. It does not supply the vehicle's
+dimensions. Omit them and the route returned is a generic truck route that may take the vehicle
+under a bridge it cannot clear. The tool description instructs the agent to ask for dimensions
+before routing, and the response is flagged when they are missing — but if you are calling the
+underlying REST endpoint directly, nothing will warn you.
+</Warning>
+
+**Response**
+
+```json
+{
+  "distance_m": 45061,
+  "duration_s": 3780,
+  "transport_mode": "truck",
+  "computed_for": {
+    "profile": "truck (411 cm high, 36287 kg, 1615 cm long, 5 axles)",
+    "departure": "now",
+    "routing_mode": "fast",
+    "computed_at": "2026-07-29T09:14:02Z"
+  }
+}
+```
+
+Results are not deterministic and are not intended to be. Travel time depends on conditions at the
+time of the call. `computed_for` states what the number was computed under so the result can be
+reproduced and audited.
+
+**Dimensions change the answer.** The same origin and destination for a 53-ft 5-axle at 80,000 lb
+and 13'6" returns a route 1.6 miles shorter and ten minutes slower than the same request without
+dimensions, because it avoids roads the vehicle cannot legally use.
+
+**Empty result:** no route returns an empty result rather than an error. For a truck this usually
+means the dimensions make every path illegal, not that no road exists.
+
+**Not available:** departure time scheduling, waypoints, route geometry (polyline), and traffic
+analytics. Asset-based pricing, US Traffic Analytics and the Safety Cameras Feed require an
+enterprise HERE entitlement and are not exposed.
+
+---
+
+## `placematic_geocode`
+
+Turns a complete postal address into coordinates.
+
+<ParamField body="address" type="string" required>
+  The full postal address or place name. Minimum 3 characters, maximum 300.
+</ParamField>
+
+<ParamField body="limit" type="integer" default="1">
+  Number of candidate matches to return, ordered by match quality. 1–10.
+</ParamField>
+
+**Response**
+
+```json
+{
+  "matches": [
+    {
+      "label": "240 Washington St, Boston, MA 02108-4603, United States",
+      "latitude": 42.35814,
+      "longitude": -71.05765,
+      "match_quality": 1
+    }
+  ]
+}
+```
+
+<Warning>
+This tool matches complete postal addresses. Vague descriptors — "downtown Chicago", "near the
+airport", "the north side" — are not addresses. The geocoder will tokenise them and return a
+confident match that can be in the wrong state: "downtown Chicago" resolves to a street in Omaha,
+Nebraska. Resolve vague locations to a city and state before calling.
+</Warning>
+
+**Empty result:** no match returns an empty `matches` array with guidance to add a city or postal
+code.
+
+---
+
+## `placematic_reverse_geocode`
+
+Turns coordinates into the nearest postal address.
+
+<ParamField body="latitude" type="number" required>
+  Decimal degrees, WGS84. Positive north of the equator.
+</ParamField>
+
+<ParamField body="longitude" type="number" required>
+  Decimal degrees, WGS84. Positive east of Greenwich — negative in the United States.
+</ParamField>
+
+<ParamField body="limit" type="integer" default="1">
+  Number of nearby addresses to return, nearest first. 1–10.
+</ParamField>
+
+**Response**: same shape as `placematic_geocode`.
+
+**Empty result:** offshore or unmapped coordinates return an empty `matches` array.
+
+---
+
+## Errors
+
+Tool-level failures return `isError: true` with a plain-language message the agent can act on.
+
+| Condition | Agent-visible behaviour |
+| --- | --- |
+| Upstream quota exhausted | Reports the quota is reached. Does not retry. |
+| Token rejected upstream | Reports the key was rejected. Does not retry. |
+| Upstream 5xx | Reports a temporary error and suggests one retry. |
+| Upstream timeout | Reports no response in time and suggests one retry. |
+| Invalid arguments | JSON-RPC error `-32602` before any upstream call is made. |
+
+Argument validation happens in the MCP layer. A malformed call costs no transaction.
+
+---
+
+## Not yet available
+
+Documented here so you do not design around them.
+
+`placematic_search_nearby` — your locations within a radius of a point. Planned.
+`placematic_search_address` — ranked candidates for a partial or ambiguous string. Planned, and the
+correct tool for the "downtown Chicago" case above.
+Dataset version in responses — planned in the REST layer.

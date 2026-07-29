@@ -208,6 +208,22 @@
             ]
           }
         ]
+      },
+      {
+        "tab": "MCP Server",
+        "icon": "microchip-ai",
+        "groups": [
+          {
+            "group": "MCP Server",
+            "pages": [
+              "mcp/overview",
+              "mcp/quickstart",
+              "mcp/authentication",
+              "mcp/tools",
+              "mcp/troubleshooting"
+            ]
+          }
+        ]
       }
     ]
   }

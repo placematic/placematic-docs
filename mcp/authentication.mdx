@@ -1,0 +1,82 @@
+---
+title: "Authentication"
+description: "How the Placematic MCP Server authenticates a caller, and how to handle the token."
+---
+
+The server accepts an access token issued by Placematic. There are two ways to present it. Which one
+you use is decided by your client, not by preference.
+
+## Header — preferred
+
+```
+Authorization: Bearer <token>
+```
+
+Works with Cursor, Claude Code, MCP Inspector and any custom agent. The token stays in a
+configuration file or an environment variable and never appears in a URL, a browser history or a
+request log.
+
+Use this wherever your client supports it.
+
+## Connector URL — for clients that cannot send headers
+
+```
+https://mcp.placematic.io/k/<token>/mcp
+```
+
+The custom connector dialogs in both Claude and ChatGPT accept a URL and optional OAuth credentials.
+Neither has a field for a header. For those clients, the token is part of the path.
+
+<Warning>
+A connector URL **is** a credential. It travels with every screenshot, every "here's the link" in
+Slack, and every support ticket. Treat it exactly as you would treat a password, and request a
+separate token for connector use rather than reusing the one in your backend.
+</Warning>
+
+This is a beta accommodation. OAuth 2.1 is the intended replacement and is on the roadmap.
+
+## Discovery paths
+
+The server returns `404` on `/.well-known/oauth-protected-resource`,
+`/.well-known/oauth-authorization-server` and `/register`. This is deliberate: it tells a client
+there is no OAuth here and that the credential it already has is sufficient. A client that receives
+`401` on those paths instead will start an authorization flow and fail.
+
+You do not need to configure anything for this. It is documented because it explains why a connector
+that appears to be reaching the server can still report a connection failure — see
+[Troubleshooting](/mcp/troubleshooting).
+
+## Failure responses
+
+| Status | Body `code` | Cause |
+| --- | --- | --- |
+| `401` | `unauthorized` | Token missing, malformed, or not recognised |
+| `403` | `forbidden` | Token recognised but not permitted for this channel |
+| `403` | — | Request arrived on a hostname the server does not serve |
+
+The `401` response is identical for a missing token and an unrecognised one. This is intentional and
+not a bug — the response does not confirm whether a given token exists.
+
+## Handling the token
+
+**Do not put it in a repository.** Use an environment variable in client configuration files.
+`.cursor/mcp.json` in particular is committed by accident more often than any other file in this
+list.
+
+**Do not send it over email or chat.** Placematic issues tokens as a one-time secure link.
+
+**Rotate on exposure.** If a token appears in a screenshot, a shared terminal session, or a support
+thread, ask for a new one. Rotation is immediate and free; the old token stops working the moment
+the new one is issued.
+
+**Use separate tokens for separate purposes.** A token in a connector URL and a token in a backend
+service should not be the same token, so that revoking one does not interrupt the other.
+
+## Scope
+
+Every tool is a read operation. There is no write, update or delete capability in the schema, so a
+compromised token exposes query access to licensed map data and to your own territory configuration
+— it cannot change anything.
+
+Per-key rate limits and request logging are not implemented during beta. If usage attribution is a
+requirement for you, say so when you request access.

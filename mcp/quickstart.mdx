@@ -1,0 +1,151 @@
+---
+title: "Quickstart"
+description: "Connect an agent to the Placematic MCP Server and make your first tool call."
+---
+
+You need an access token. If you do not have one,
+[request access](https://placematic.com/mcp-access/) — tokens are issued within one business day.
+
+## Verify the endpoint first
+
+Before configuring a client, confirm the server answers for your token. This separates a bad token
+from a bad client config, which is worth thirty seconds.
+
+```bash
+export MCP_URL=https://mcp.placematic.io/mcp
+export TOKEN=<your token>
+
+curl -s -X POST "$MCP_URL" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
+  | sed -n 's/^data: //p' | jq -r '.result.tools[].name'
+```
+
+Expected output:
+
+```
+placematic_assign_territory
+placematic_route
+placematic_geocode
+placematic_reverse_geocode
+```
+
+<Warning>
+The `Accept` header must contain **both** `application/json` and `text/event-stream`. Sending only
+`application/json` returns `Not Acceptable`. The server replies as an SSE stream, which is why the
+example pipes through `sed` before `jq` — `jq` cannot parse `event: message` directly.
+</Warning>
+
+## Connect a client
+
+<Tabs>
+  <Tab title="Cursor">
+    Edit `~/.cursor/mcp.json` for all projects, or `.cursor/mcp.json` inside one project.
+
+    ```json
+    {
+      "mcpServers": {
+        "placematic": {
+          "url": "https://mcp.placematic.io/mcp",
+          "headers": {
+            "Authorization": "Bearer ${env:PLACEMATIC_MCP_TOKEN}"
+          }
+        }
+      }
+    }
+    ```
+
+    Set `PLACEMATIC_MCP_TOKEN` in your environment rather than pasting the token into the file —
+    `.cursor/mcp.json` is frequently committed to a repository by accident.
+
+    Verify under **Cursor Settings → Tools & MCP**. The server should show as connected with four
+    tools listed.
+  </Tab>
+
+  <Tab title="Claude Code">
+    ```bash
+    claude mcp add --transport http placematic https://mcp.placematic.io/mcp \
+      --header "Authorization: Bearer $PLACEMATIC_MCP_TOKEN"
+
+    claude mcp list
+    ```
+
+    Claude Code sends the header directly. This is the least fragile way to connect.
+  </Tab>
+
+  <Tab title="Claude">
+    The custom connector dialog accepts a URL and optional OAuth credentials. There is no field for
+    a header, so the token goes in the URL path.
+
+    1. **Settings → Connectors → Add custom connector**
+    2. Name: `Placematic`
+    3. Remote MCP server URL:
+       ```
+       https://mcp.placematic.io/k/<your token>/mcp
+       ```
+    4. Leave OAuth Client ID and Secret empty.
+    5. **Add**, then **Connect**.
+    6. Open a **new conversation** and enable `Placematic` in the tools menu.
+
+    <Warning>
+    On Team and Enterprise plans, organisation connectors are added by an Owner. If you do not see
+    the option, you are not the one who can add it.
+    </Warning>
+  </Tab>
+
+  <Tab title="ChatGPT">
+    Custom MCP connectors require developer mode, which is off by default.
+
+    1. **Settings → Apps → Advanced settings → Developer mode → on**
+    2. **Create custom connector**, URL:
+       ```
+       https://mcp.placematic.io/k/<your token>/mcp
+       ```
+    3. In a chat: **+ → Developer mode →** select the connector.
+
+    <Warning>
+    On Business, Enterprise and Edu plans this is a workspace-level setting. A workspace
+    administrator must enable developer mode and custom MCP connectors under **Workspace Settings →
+    Permissions & Roles → Connected Data** before any member can add a connector. Plan for this in
+    your rollout; it is usually the longest step.
+    </Warning>
+
+    Custom connectors are web-only. They do not appear in the ChatGPT desktop or mobile apps.
+  </Tab>
+
+  <Tab title="Custom agent">
+    Any MCP client library that supports Streamable HTTP will connect. Point it at
+    `https://mcp.placematic.io/mcp` and send `Authorization: Bearer <token>`.
+
+    There is no `initialize` handshake required on revision `2026-07-28`; clients on `2025-11-25`
+    that send one are handled on the compatibility path. You do not need to branch on this.
+  </Tab>
+</Tabs>
+
+## First call
+
+With the connector enabled, ask a question in natural language. Do not name the tool — the point of
+the tool descriptions is that the model selects correctly without being told.
+
+```
+An order just came in from 1139 N Arlington Heights Rd, Itasca IL.
+Which of our locations delivers there, and on what terms?
+```
+
+The agent should chain two calls — `placematic_geocode` to resolve the address, then
+`placematic_assign_territory` to answer the question — and return the serving location with its
+delivery conditions.
+
+## After a schema change
+
+Clients cache tool schemas and do not refresh them on their own. If Placematic changes a tool's
+arguments, your agent will keep sending the old ones and receive validation errors until the
+connector is refreshed.
+
+**Cursor and Claude Code:** restart the client.
+**Claude and ChatGPT connectors:** remove the connector and add it again. Toggling it off and on in
+a conversation is not enough.
+
+Schema changes are announced by email to the address on your access request.

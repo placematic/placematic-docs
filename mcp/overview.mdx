@@ -1,0 +1,82 @@
+---
+title: "Placematic MCP Server"
+sidebarTitle: "Overview"
+description: "A Model Context Protocol endpoint that exposes the Placematic Spatial API to AI agents as callable tools."
+---
+
+The Placematic MCP Server lets an AI agent call the Placematic Spatial API directly. It is a thin
+layer: each tool maps to one endpoint you could call yourself over REST, with your own credential,
+and returns what that endpoint returns.
+
+<Info>
+**Beta.** The MCP Server is in beta and is excluded from the availability commitments in the
+[Placematic SLA](https://placematic.com/sla/). The Placematic API services it calls remain covered.
+</Info>
+
+## Endpoint
+
+```
+https://mcp.placematic.io/mcp
+```
+
+Transport is Streamable HTTP. The server targets MCP revision `2026-07-28` and remains compatible
+with clients on `2025-11-25`. Both connect to the same endpoint — you do not select a version.
+
+## What it does
+
+Four tools are available today:
+
+| Tool | Answers |
+| --- | --- |
+| `placematic_assign_territory` | Which of your territories covers a point, which of your locations serve it, and on what delivery terms |
+| `placematic_route` | Road distance and driving time, with a truck profile that respects height, weight, length and axle restrictions |
+| `placematic_geocode` | Turns a complete postal address into coordinates |
+| `placematic_reverse_geocode` | Turns coordinates into the nearest postal address |
+
+Full argument schemas and response shapes: [Tool reference](/mcp/tools).
+
+## What it does not do
+
+Read this before you design against it.
+
+**No write operations.** Every tool is a query. No write, update or delete operation exists in the
+schema — the capability is absent, not disabled.
+
+**No `search_nearby` or `search_address` yet.** Both are planned. Neither is exposed today, and an
+agent asking for a radius search or ranked address candidates will not find a tool for it.
+
+**No dataset version in the response.** Responses do not currently state which dataset version
+answered. This is in development in the REST layer; when it ships it will surface here.
+
+**No per-key rate limits or request logs.** During beta, access is by a shared credential and there
+is no per-caller metering. If you need usage attribution before general availability, tell us when
+you request access.
+
+**No batch calls.** One tool call answers one question. Batching an agent's work into fewer calls is
+your concern, not the server's.
+
+## What you need
+
+An access token issued by Placematic. Placematic USA LLC is the contracting party — you do not open
+a HERE account, negotiate a HERE contract, or manage a HERE key.
+
+<Card title="Request access" icon="key" href="https://placematic.com/mcp-access/">
+  Issued within one business day. No credit card, no demo call.
+</Card>
+
+## Next
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="play" href="/mcp/quickstart">
+    Connect Cursor, Claude Code, Claude or ChatGPT.
+  </Card>
+  <Card title="Authentication" icon="lock" href="/mcp/authentication">
+    Header auth, connector URLs, and how to handle the token.
+  </Card>
+  <Card title="Tool reference" icon="wrench" href="/mcp/tools">
+    Arguments, response shapes, and error behaviour for all four tools.
+  </Card>
+  <Card title="Troubleshooting" icon="circle-exclamation" href="/mcp/troubleshooting">
+    Every failure mode we hit while building this, and what causes it.
+  </Card>
+</CardGroup>
