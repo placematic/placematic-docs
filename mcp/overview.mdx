@@ -42,16 +42,6 @@ Read this before you design against it.
 **No write operations.** Every tool is a query. No write, update or delete operation exists in the
 schema — the capability is absent, not disabled.
 
-**No `search_nearby` or `search_address` yet.** Both are planned. Neither is exposed today, and an
-agent asking for a radius search or ranked address candidates will not find a tool for it.
-
-**No dataset version in the response.** Responses do not currently state which dataset version
-answered. This is in development in the REST layer; when it ships it will surface here.
-
-**No per-key rate limits or request logs.** During beta, access is by a shared credential and there
-is no per-caller metering. If you need usage attribution before general availability, tell us when
-you request access.
-
 **No batch calls.** One tool call answers one question. Batching an agent's work into fewer calls is
 your concern, not the server's.
 
