@@ -177,10 +177,13 @@ Turns a complete postal address into coordinates.
 {
   "matches": [
     {
-      "label": "240 Washington St, Boston, MA 02108-4603, United States",
-      "latitude": 42.35814,
-      "longitude": -71.05765,
-      "match_quality": 1
+      "label": "1250 N Mittel Blvd, Wood Dale, IL 60191-1014, United States",
+      "latitude": 41.98708,
+      "longitude": -87.98763,
+      "access_latitude": 41.98663,
+      "access_longitude": -87.98746,
+      "estimated_point": false,
+      "match_quality": 0.99
     }
   ]
 }
@@ -195,6 +198,21 @@ This is correct behaviour, not a defect. A geocoder has no "I don't know" mode; 
 the best available match, and it always finds one. Resolve vague locations to a city and state
 before calling.
 </Warning>
+
+**Access point.** Where HERE has surveyed access data, the response carries an access point separate
+from the building position. The position is the building or rooftop centroid; the access point is
+where the property meets the road network.
+
+Across a sample of 20 Illinois warehouse and distribution addresses, 19 returned an access point,
+with a median offset of 51 m from the rooftop position and a maximum of 166 m. Addresses flagged
+`estimatedPointAddress` return an access point that is a projection onto the road centreline and
+carries no additional information — both such addresses in the sample had the smallest offsets in
+the set.
+
+Whether that offset changes a route depends on whether the two points snap to the same road segment.
+On three addresses tested, one produced truck routes 2.6 km apart approaching from different sides
+of the site; the other two produced routes within 60 m of each other. Use the access point where one
+is present — it is never worse, and occasionally it is the difference between a dock and a fence.
 
 **Empty result:** no match returns an empty `matches` array with guidance to add a city or postal
 code.
