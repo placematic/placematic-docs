@@ -48,7 +48,7 @@ directly.
       ]
     }
   ],
-  "evaluated_at": "2026-07-29T09:14:02Z"
+  "evaluated_at": "2026-08-01T09:14:02Z"
 }
 ```
 
@@ -68,8 +68,8 @@ valid business answer.
 
 ## `placematic_route`
 
-Road distance and driving time between two points, with a truck profile that respects vehicle
-restrictions in the HERE road network.
+Road distance, driving time and toll cost between two points, with a truck profile that respects
+vehicle restrictions in the HERE road network.
 
 <ParamField body="origin_latitude" type="number" required />
 <ParamField body="origin_longitude" type="number" required />
@@ -79,14 +79,6 @@ restrictions in the HERE road network.
 <ParamField body="transport_mode" type="string" default="car">
   `car` or `truck`. Use `truck` for any commercial goods vehicle.
 </ParamField>
-
-<Warning>
-Setting `transport_mode: "truck"` selects a routing engine. It does not supply the vehicle's
-dimensions. Omit them and the route returned is a generic truck route that may take the vehicle
-under a bridge it cannot clear. The tool description instructs the agent to ask for dimensions
-before routing, and the response is flagged when they are missing — but if you are calling the
-underlying REST endpoint directly, nothing will warn you.
-</Warning>
 
 <ParamField body="truck_height_cm" type="integer">
   Vehicle height in **centimetres**. A standard US semi at 13 ft 6 in is `411`.
@@ -101,37 +93,62 @@ underlying REST endpoint directly, nothing will warn you.
 </ParamField>
 
 <ParamField body="truck_axle_count" type="integer">
-  Number of axles. A standard US 5-axle semi is `5`.
+  Number of axles. A standard US 5-axle semi is `5`. Toll rates are charged by axle — omitting this
+  materially changes the cost estimate.
 </ParamField>
 
 <Warning>
-Toll estimates depend on the same profile. Axle count in particular changes the rate: the same route returned USD 30.88 with height and weight only, and USD 55.00 once length and a 5-axle configuration were supplied. If you are calling the underlying REST endpoint directly, nothing will warn you about either.
-</Warning>
+**`transport_mode: "truck"` selects a routing engine. It does not tell that engine what your truck
+is.** Omit the dimensions and you get a generic truck route, with a toll figure computed for a
+default profile.
 
+Measured on one 310-mile Illinois lane, same origin, same destination:
+
+| | No vehicle profile | Height, weight, length, 5 axles |
+| --- | --- | --- |
+| Distance | 307.9 mi | 310.0 mi |
+| Duration | 5 h 7 min | 5 h 7 min |
+| **Tolls** | **USD 20.70** | **USD 55.00** |
+
+Same four toll gantries, same two tollways. The toll is 166% higher with the full profile, because
+Illinois charges by axle. Distance moved by two miles and duration not at all — **there is no signal
+in the cheaper answer that it is wrong.** It is the right order of magnitude, it names the right
+tollways, and it arrives in the same format.
+
+The tool description instructs the agent to ask for dimensions before routing, and the response
+carries a warning when they are missing. If you call the underlying REST endpoint directly, nothing
+will warn you.
+</Warning>
 
 **Response**
 
 ```json
 {
-  "distance_m": 45061,
-  "duration_s": 3780,
+  "distance_m": 498900,
+  "duration_s": 18420,
   "transport_mode": "truck",
+  "tolls": {
+    "total": 55.0,
+    "currency": "USD",
+    "points": 4,
+    "systems": ["VETERANS MEMORIAL TOLLWAY", "REAGAN MEMORIAL TOLLWAY"]
+  },
   "computed_for": {
     "profile": "truck (411 cm high, 36287 kg, 1615 cm long, 5 axles)",
     "departure": "now",
     "routing_mode": "fast",
-    "computed_at": "2026-07-29T09:14:02Z"
+    "computed_at": "2026-08-01T09:14:02Z"
   }
 }
 ```
 
-Results are not deterministic and are not intended to be. Travel time depends on conditions at the
-time of the call. `computed_for` states what the number was computed under so the result can be
-reproduced and audited.
+`tolls.total` is the sum of all fares on the route, in `tolls.currency`. `tolls.points` counts
+individual fares, not distinct toll systems — one tollway can charge at several gantries, which is
+why four points map to two systems above. A route with no tolls returns `total: 0` and `points: 0`.
 
-**Dimensions change the answer.** The same origin and destination for a 53-ft 5-axle at 80,000 lb
-and 13'6" returns a route 1.6 miles shorter and ten minutes slower than the same request without
-dimensions, because it avoids roads the vehicle cannot legally use.
+Results are not deterministic and are not intended to be. Travel time depends on conditions at the
+time of the call. `computed_for` states what the number was computed under, so the result can be
+reproduced and audited.
 
 **Empty result:** no route returns an empty result rather than an error. For a truck this usually
 means the dimensions make every path illegal, not that no road exists.
@@ -171,9 +188,12 @@ Turns a complete postal address into coordinates.
 
 <Warning>
 This tool matches complete postal addresses. Vague descriptors — "downtown Chicago", "near the
-airport", "the north side" — are not addresses. The geocoder will tokenise them and return a
-confident match that can be in the wrong state: "downtown Chicago" resolves to a street in Omaha,
-Nebraska. Resolve vague locations to a city and state before calling.
+airport", "the north side" — are not addresses. The geocoder tokenises them and returns a confident
+match that can be in the wrong state: "downtown Chicago" resolves to a street in Omaha, Nebraska.
+
+This is correct behaviour, not a defect. A geocoder has no "I don't know" mode; its job is to return
+the best available match, and it always finds one. Resolve vague locations to a city and state
+before calling.
 </Warning>
 
 **Empty result:** no match returns an empty `matches` array with guidance to add a city or postal
@@ -218,3 +238,14 @@ Tool-level failures return `isError: true` with a plain-language message the age
 Argument validation happens in the MCP layer. A malformed call costs no transaction.
 
 ---
+
+## Not yet available
+
+Documented here so you do not design around them.
+
+`placematic_search_nearby` — your locations within a radius of a point. Planned.
+
+`placematic_search_address` — ranked candidates for a partial or ambiguous string. Planned, and the
+correct tool for the "downtown Chicago" case above.
+
+Dataset version in responses — planned in the REST layer.
