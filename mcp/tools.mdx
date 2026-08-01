@@ -80,6 +80,14 @@ restrictions in the HERE road network.
   `car` or `truck`. Use `truck` for any commercial goods vehicle.
 </ParamField>
 
+<Warning>
+Setting `transport_mode: "truck"` selects a routing engine. It does not supply the vehicle's
+dimensions. Omit them and the route returned is a generic truck route that may take the vehicle
+under a bridge it cannot clear. The tool description instructs the agent to ask for dimensions
+before routing, and the response is flagged when they are missing — but if you are calling the
+underlying REST endpoint directly, nothing will warn you.
+</Warning>
+
 <ParamField body="truck_height_cm" type="integer">
   Vehicle height in **centimetres**. A standard US semi at 13 ft 6 in is `411`.
 </ParamField>
@@ -97,12 +105,9 @@ restrictions in the HERE road network.
 </ParamField>
 
 <Warning>
-Setting `transport_mode: "truck"` selects a routing engine. It does not supply the vehicle's
-dimensions. Omit them and the route returned is a generic truck route that may take the vehicle
-under a bridge it cannot clear. The tool description instructs the agent to ask for dimensions
-before routing, and the response is flagged when they are missing — but if you are calling the
-underlying REST endpoint directly, nothing will warn you.
+Toll estimates depend on the same profile. Axle count in particular changes the rate: the same route returned USD 30.88 with height and weight only, and USD 55.00 once length and a 5-axle configuration were supplied. If you are calling the underlying REST endpoint directly, nothing will warn you about either.
 </Warning>
+
 
 **Response**
 
