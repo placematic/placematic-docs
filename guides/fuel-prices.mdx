@@ -1,0 +1,284 @@
+---
+title: "HERE Fuel Prices API — Implementation Guide"
+description: "How to implement HERE Fuel Prices v3 in production — search geometries, fuel type IDs, the US cash-vs-credit trap, and truck accessibility filtering."
+---
+
+# HERE Fuel Prices API
+
+The Fuel Prices API answers one question: which fuel stations are in this area, and what are they charging right now.
+
+It does not tell you what a station costs *your* fleet. Carriers on fuel cards pay negotiated rates, and the pump price is a reference layer, not an invoice. It also does not decide where a truck should stop — that is a routing problem you solve with [Truck Routing](/guides/truck-routing), using this API as one input.
+
+## What problem this guide solves
+
+You need priced fuel stations along a corridor or around a point, and you need the ones a tractor-trailer can actually enter.
+
+HERE's reference documentation lists every parameter and all 97 fuel type IDs. This guide tells you which of those IDs will silently corrupt a US price comparison, why your corridor request breaks in the browser, and why the station your driver needed was missing from the response.
+
+## When to use HERE Fuel Prices
+
+* Showing priced stations around a driver's current position
+* Finding stations along a planned route, with a corridor width you control
+* Filtering candidate stops by brand, fuel type, or vehicle accessibility
+* Building a price-spread view across a lane or region
+* Feeding station candidates into an optimizer that scores detour cost
+
+## When NOT to use it
+
+<Warning>
+  If you are calling this API to decide *whether* a stop is worth the detour, you are only holding one of the three inputs. Price without detour cost and without vehicle accessibility produces a recommendation the driver cannot follow.
+</Warning>
+
+* **Calculating what a fleet actually pays.** These are pump prices. Fuel card networks settle at negotiated rates. Use this as a reference layer and model the discount separately.
+* **Detour cost.** `distance` in the response is air distance. Road distance and drive time come from [Routing](/guides/routing).
+* **EV charging stops.** Different product entirely. See [EV Routing](/guides/ev-routing).
+* **General POI discovery.** If you want every amenity at a truck stop, that is [Geocoding & Search](/guides/geocoding), not this.
+
+## Your first request
+
+<CodeGroup>
+```bash cURL
+curl -gX GET 'https://fuel.hereapi.com/v3/stations?'\
+'in=circle:41.9921,-88.0035;r=5000&'\
+'fuelTypes=-1&'\
+'sort=price:asc&'\
+'limit=50' \
+  -H "Authorization: Bearer $HERE_TOKEN"
+```
+
+```python Python
+import os, requests
+
+resp = requests.get(
+    "https://fuel.hereapi.com/v3/stations",
+    params={
+        "in": "circle:41.9921,-88.0035;r=5000",
+        "fuelTypes": -1,          # All Truck Diesel
+        "sort": "price:asc",
+        "limit": 50,
+    },
+    headers={"Authorization": f"Bearer {os.environ['HERE_TOKEN']}"},
+    timeout=10,
+)
+resp.raise_for_status()
+data = resp.json()
+print(data["total"], len(data["stations"]))
+```
+
+```javascript Node.js
+const params = new URLSearchParams({
+  in: "circle:41.9921,-88.0035;r=5000",
+  fuelTypes: "-1",
+  sort: "price:asc",
+  limit: "50",
+});
+
+const resp = await fetch(
+  `https://fuel.hereapi.com/v3/stations?${params}`,
+  { headers: { Authorization: `Bearer ${process.env.HERE_TOKEN}` } }
+);
+if (!resp.ok) throw new Error(`HERE returned ${resp.status}`);
+const { total, stations } = await resp.json();
+console.log(total, stations.length);
+```
+</CodeGroup>
+
+<Info>
+  This endpoint documents Bearer token authentication, not the `apiKey` query parameter you may be using on Routing or Geocoding. If you are reusing credential-handling code from another HERE API, check this before you debug anything else. See [Authentication](/getting-started/authentication).
+</Info>
+
+## Key concepts
+
+**`in` accepts three geometries, and they are not interchangeable.** A circle (`circle:{lat},{lng};r={meters}`), a bounding box (`bbox:{west},{south},{east},{north}`), or a corridor (`corridor:{flexiblePolyline};r={meters}`). Circle for "near the driver". Bbox for a map viewport. Corridor for a planned route.
+
+**Fuel type IDs are the API's real interface.** There are 97 of them plus 8 negative category aggregates. The negative values are what you usually want: `-1` is All Truck Diesel, `-2` All Diesel, `-3` All Petrol. Querying `-1` rather than enumerating `1,11,32,55` saves you from missing a grade a brand happens to report differently.
+
+**Accessibility is returned, not filtered.** Each station carries `stationDetails.accessibilities` with values like *Suitable for cars*, *Suitable for medium trucks*, *Suitable for large trucks*. There is no server-side parameter for it. You over-fetch and filter client-side, which has consequences for pagination — see below.
+
+**`position` and `access` are different coordinates.** `position` is the site. `access` is where a vehicle enters. On divided highways and frontage roads these diverge enough to change which side of the road a stop is on. Route to `access`.
+
+**`sort=distance` is air distance, and only meaningful for circle search.** It ignores the road network entirely. A station 400 metres away across a median with no crossing sorts above one 900 metres ahead on your side. Sort by air distance to shortlist, then score with real routing.
+
+**`returnAllStations` defaults to `false`.** Stations with stale or unknown prices are dropped from the response. Your coverage looks worse than it is, and a station the driver can see from the cab is missing from the app. Set it to `true` when the user is choosing a place to stop; leave it `false` when you are computing a price spread.
+
+## The US cash-versus-credit trap
+
+This is the failure that will not surface in staging, because it does not exist in Europe.
+
+Many US stations post two prices for the same fuel: a cash price and a credit price. HERE models these as **separate fuel type IDs**, not as two fields on one entry.
+
+| ID | Name |
+|----|------|
+| 1 | Diesel |
+| 76 | Diesel cash (US ONLY) |
+| 2 | Regular |
+| 78 | Regular cash (US ONLY) |
+| 11 | Truck-Diesel |
+| 97 | Truck Diesel cash |
+| 4 | Premium |
+| 80 | Premium cash (US ONLY) |
+
+If you query a category aggregate like `-2` (All Diesel) and then compare the returned prices across stations, you will compare a cash price at one station against a credit price at another and rank them against each other. The spread you surface is fiction, and it is fiction in the direction that makes cash-posting stations look cheapest.
+
+<Warning>
+  Decide which price basis your product uses, then filter the response by fuel type ID before any comparison. Ranking a mixed set of cash and credit prices produces a confidently wrong answer, and nothing in the response flags it for you.
+</Warning>
+
+For a fleet paying by card, the credit-side IDs are the honest comparison. For a consumer app, cash may be what the user sees on the sign.
+
+## Corridor search: use POST
+
+The `corridor:` value in `in` is a Flexible Polyline in a query string. A real interstate leg encodes to a string long enough to exceed URL length limits in browsers and some proxies, and the request dies before it reaches HERE.
+
+There is a second endpoint at the same path that takes the corridor in the request body:
+
+<CodeGroup>
+```bash cURL
+curl -X POST 'https://fuel.hereapi.com/v3/stations?fuelTypes=-1&limit=50&sort=price:asc' \
+  -H "Authorization: Bearer $HERE_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "corridor": [
+      { "lat": 35.9940, "lng": -78.8986 },
+      { "lat": 36.0999, "lng": -80.2442 },
+      { "lat": 35.2271, "lng": -80.8431 }
+    ],
+    "width": 5000
+  }'
+```
+
+```python Python
+import os, requests
+
+resp = requests.post(
+    "https://fuel.hereapi.com/v3/stations",
+    params={"fuelTypes": -1, "limit": 50, "sort": "price:asc"},
+    json={
+        "corridor": [
+            {"lat": 35.9940, "lng": -78.8986},
+            {"lat": 36.0999, "lng": -80.2442},
+            {"lat": 35.2271, "lng": -80.8431},
+        ],
+        "width": 5000,
+    },
+    headers={"Authorization": f"Bearer {os.environ['HERE_TOKEN']}"},
+    timeout=20,
+)
+resp.raise_for_status()
+print(resp.json()["total"])
+```
+</CodeGroup>
+
+Note the constraint on `width`: **minimum 5000 metres, maximum 20000**, default 5000. You cannot ask for a tight 500-metre corridor. The narrowest search HERE will run is 5 km either side of the line, so every corridor result needs detour filtering on your side regardless of how precise your polyline is.
+
+Query parameters stay in the query string on the POST. Only `corridor` and `width` move to the body.
+
+## Truck workflows
+
+The sequence that holds up in production:
+
+1. **Query wide, on the right fuel basis.** `fuelTypes=-1` for truck diesel, corridor via POST, `limit` at the ceiling.
+2. **Filter on accessibility client-side.** Keep only stations whose `accessibilities` includes *Suitable for large trucks*. Expect this to remove a large share of results — in a dense suburban radius it routinely halves them.
+3. **Score the survivors with real routing.** Detour to `access`, not `position`, using [Truck Routing](/guides/truck-routing) with the vehicle profile so height and weight restrictions on the approach are respected. A station rated for large trucks is still unreachable if the only approach runs under a low bridge.
+4. **Apply tank state.** How much range remains determines whether a detour is affordable at all, and whether you want a partial fill now and a full fill at a better price downstream.
+
+Steps 2 and 3 are where the useful product is. Step 1 is a data call anyone can make.
+
+<Info>
+  Because accessibility filtering happens after the response, `limit=50` is not 50 usable stations. Paginate with `offset` until you have enough truck-accessible candidates, or set a generous `limit` and accept the payload. Check `HasMore` before assuming you have seen everything.
+</Info>
+
+## Production architecture
+
+**Cache stations separately from prices.** The station list for a fixed corridor is stable for weeks. Prices carry a `modified` timestamp and move through the day. One TTL for both means either stale prices or pointless refetching of a station list that has not changed.
+
+**Trust the `modified` field, and show it.** Every price entry is individually timestamped. A price from four hours ago and one from four days ago look identical in your UI unless you surface the difference. In Illinois we have seen station records refresh daily with prices updating several times within the same day.
+
+**Do not call this on map pan.** A debounced viewport query is fine at human interaction speed. An undebounced one fires a billable request per frame of a drag.
+
+**Use the count endpoint for coverage checks.** There is a dedicated stations-count resource. Use it when you want to know whether an area has data at all, rather than pulling 50 full station objects to find out.
+
+**Handle `403` as an entitlement failure.** Fuel Prices is licensed separately from Routing and Geocoding. A key that works everywhere else will return `403` here if the product is not on your contract. Retrying will not help.
+
+**Set `X-Request-Id`.** The API accepts a caller-supplied trace token. Set it to something you can correlate with your own logs before you need it at 3am.
+
+## Cost and usage considerations
+
+Each search is one billable transaction. Fuel Prices meters independently of Routing, Geocoding, and tiles.
+
+Where teams overspend:
+
+* **Undebounced map interactions.** The single largest avoidable cost in any map-driven fuel UI.
+* **Refetching an unchanged corridor.** The route did not move. The station list did not move. Only prices did, and a cached station list plus a narrow price refresh is cheaper than a full corridor search.
+* **Pulling full station objects to test coverage.** Use the count endpoint.
+* **Over-wide corridors.** A 20 km corridor across a long interstate leg returns a large result set, most of which fails your detour filter anyway. Start at 5 km and widen only where results are thin.
+
+See [HERE Pricing Explained](/getting-started/here-pricing-explained) for how transaction and asset-based models differ.
+
+## Common mistakes
+
+**Comparing cash prices against credit prices.** Separate fuel type IDs, silently mixed by category queries. Covered above; it is the one to internalise.
+
+**Assuming `distance` is drive distance.** It is air distance. Always.
+
+**Routing to `position`.** Use `access`. The difference is small in metres and decisive on a divided highway.
+
+**Leaving `returnAllStations` at the default in a driver-facing UI.** The station the driver is looking at is missing because its price is stale, and you have taught them the app is unreliable.
+
+**Putting a long corridor polyline in a query string.** Works in Postman on a short test leg, fails in the browser on a real one. Use POST.
+
+**Filtering accessibility before pagination.** `limit=50` returns 50 stations, not 50 truck-accessible ones. Page until you have candidates, not until you have rows.
+
+**Reusing `apiKey` query auth from another HERE API.** This endpoint documents Bearer tokens.
+
+**Retrying a `403`.** Patient, well-engineered, permanently futile.
+
+## Best practices
+
+* Query `-1` or `-2` category IDs rather than enumerating individual grades
+* Pick a price basis, cash or credit, and filter to it before any ranking
+* Use POST for corridors, GET for circles and viewports
+* Route to `access`, never to `position`
+* Cache station geometry and price data with different TTLs
+* Surface the per-price `modified` timestamp in any UI a driver acts on
+* Debounce every map-driven query
+* Paginate against truck-accessible candidates, not raw row count
+* Set `X-Request-Id` on every call and log it beside the status code
+
+## API reference
+
+Complete parameter tables, the full 97-entry fuel type list, and response schemas are maintained by HERE:
+
+* [Fuel Prices API v3 — stations search](https://docs.here.com/fuel-prices/reference/fuelstationssearch)
+* [Fuel Prices API v3 — corridor search (POST)](https://docs.here.com/fuel-prices/reference/fuelstationscorridorsearch)
+* [Fuel Prices API concepts](https://docs.here.com/fuel-prices/docs/concepts)
+
+We do not duplicate them.
+
+## Related guides
+
+<CardGroup cols={2}>
+  <Card title="Truck Routing" href="/guides/truck-routing">
+    Detour cost to the access point, with the restrictions that decide whether the approach is legal.
+  </Card>
+
+  <Card title="Routing" href="/guides/routing">
+    Turning an air-distance shortlist into real drive time.
+  </Card>
+
+  <Card title="EV Routing" href="/guides/ev-routing">
+    The same stop-selection problem, with charge state instead of tank level.
+  </Card>
+
+  <Card title="Choosing the Right HERE APIs" href="/getting-started/choosing-the-right-here-apis">
+    Where fuel data sits relative to routing, search, and optimisation.
+  </Card>
+</CardGroup>
+
+Also: [Authentication](/getting-started/authentication) · [HERE Pricing Explained](/getting-started/here-pricing-explained) · [Geocoding](/guides/geocoding)
+
+---
+
+Need production HERE API keys or implementation support?
+
+Placematic is an official HERE Technologies reseller and implementation partner helping companies choose the right HERE APIs, estimate usage, migrate from Google Maps and build production-ready geospatial solutions. [Talk to us](https://placematic.com/contact/).
