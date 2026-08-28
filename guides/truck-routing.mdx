@@ -1,6 +1,6 @@
 ---
 title: "HERE Truck Routing — Implementation Guide"
-description: "Implementing HERE truck routing in production — physical constraints, hazmat classes, trap geometry validation, and why a valid response can still be an undrivable route."
+description: "Implementing HERE truck routing in production — physical constraints, hazmat classes, trap geometry validation, why a valid response can still be an undrivable route, and how the constraint set compares to Google Large Vehicle Routing."
 ---
 
 # HERE Truck Routing
@@ -42,7 +42,7 @@ curl -gX GET 'https://router.hereapi.com/v8/routes?'\
 'destination=41.5250,-88.0817&'\
 'vehicle[height]=410&'\
 'vehicle[grossWeight]=35000&'\
-'truck[axleCount]=5&'\
+'vehicle[axleCount]=5&'\
 'return=summary,polyline&'\
 'apiKey=YOUR_API_KEY'
 ```
@@ -59,7 +59,7 @@ def truck_route(origin: str, destination: str) -> dict:
             "destination": destination,
             "vehicle[height]": 410,          # centimetres
             "vehicle[grossWeight]": 35000,   # kilograms
-            "truck[axleCount]": 5,
+            "vehicle[axleCount]": 5,
             "return": "summary,polyline",
             "apiKey": os.environ["HERE_API_KEY"],
         },
@@ -86,7 +86,8 @@ Confirm every unit against the [Routing API v8 reference](https://docs.here.com/
 
 **`axleCount` counts the whole combination.** Base vehicle plus every attached trailer. Valid range is 2–255. Supported in `truck`, `bus`, and `privateBus`; in `car` and `taxi` it carries beta status.
 
-**Hazmat is a classed enum, not a boolean.** HERE exposes `shippedHazardousGoods` with class values including `B`, `C`, `D`, and `E`. Which classes are supported depends on transport mode. Do not map your internal hazmat flags without reading the reference.
+**Hazmat is two parameters, not one, and they govern different things.** `shippedHazardousGoods` is a list of cargo types — `explosive`, `gas`, `flammable`, `combustible`, `organic`, `poison`, `radioactive`, `corrosive`, `poisonousInhalation`, `harmfulToWater`, `other`. `tunnelCategory` is the ADR tunnel restriction code, with values `B`, `C`, `D`, `E`. Confusing them is the most consequential hazmat integration error. See [How does HERE handle hazmat routing?](/faq/how-does-here-handle-hazmat).
+HERE exposes `shippedHazardousGoods` with class values including `B`, `C`, `D`, and `E`. Which classes are supported depends on transport mode. Do not map your internal hazmat flags without reading the reference.
 
 **`category=lightTruck` is a legal exemption, not a physical one.** It exempts the vehicle from many restrictions written for normal trucks. Restrictions on physical dimensions and cargo still apply. Setting it does not let you skip `height` and `grossWeight`.
 
@@ -122,7 +123,9 @@ Run the same three with `transportMode=car`. Every one should return a route. Th
 
 ## Cost and usage considerations
 
-Truck routing bills as a routing transaction. The cost gap versus Google is largest here, because Google offers no equivalent depth of commercial vehicle constraints — the comparison is capability, not price.
+Truck routing bills as a routing transaction — the same rate and the same free allowance as a car route. Google's large vehicle routing requires the traffic-aware optimal routing preference, which bills above its Essentials rate, so on Google the vehicle profile moves you to a different meter and on HERE it does not.
+
+Toll cost is billed separately on HERE and counts as an additional transaction. Google's large vehicle routing documentation lists truck toll prices as unsupported. See [Toll Cost](/guides/toll-cost).
 
 <Warning>
 Truck routing inclusion in HERE's free tier should be confirmed against your specific account before you scope a pilot around it. Free-tier product coverage varies and should not be inferred from general documentation. Placematic can confirm your entitlement before you commit engineering time.
@@ -169,11 +172,14 @@ For matrices of truck travel times, [Matrix Routing](/guides/matrix-routing) acc
   <Card title="Routing" href="/guides/routing">
     The base engine, request shaping, and error semantics.
   </Card>
+  <Card title="Toll Cost" href="/guides/toll-cost">
+    Why the toll figure depends on the vehicle profile, and what Google returns instead.
+  </Card>
   <Card title="Matrix Routing" href="/guides/matrix-routing">
     Truck travel times across many origins and destinations, in one call.
   </Card>
   <Card title="HERE vs Google Maps" href="/comparisons/here-vs-google-maps">
-    Where the commercial vehicle gap is decisive.
+    Constraint scope, coverage limits, and where the gap actually sits.
   </Card>
   <Card title="HERE Pricing Explained" href="/getting-started/here-pricing-explained">
     Asset-based versus call-volume pricing for fleet workloads.

@@ -179,7 +179,7 @@ Asset-based pricing availability depends on contract tier. Confirm before it bec
 
 ## Alternatives and trade-offs
 
-**Google Maps Platform** has no equivalent to Route Matching. Without matched road segments there is no defensible jurisdiction-mile calculation and no reliable speed compliance. It also cannot express commercial vehicle constraints. For an ELD platform's core, it is not a candidate. It remains fine for any consumer-facing address autocomplete you expose.
+**Google Maps Platform** has no equivalent to Route Matching. Without matched road segments there is no defensible jurisdiction-mile calculation and no reliable speed compliance. Its Large Vehicle Routing, added in August 2026, expresses commercial vehicle constraints for the contiguous US but returns no posted speed limits — so it cannot feed speed compliance either. For an ELD platform's core, it is not a candidate. It remains fine for any consumer-facing address autocomplete you expose.
 
 **Self-hosted map matching** — OSRM's matching service, Valhalla's Meili — is genuinely capable. You inherit map freshness, truck attribute curation, and jurisdiction boundary maintenance as ongoing engineering. Realistic if you have a GIS team. For most ELD vendors this becomes a second product nobody is funded to own, and the map version you must cite in an audit is one you now maintain.
 

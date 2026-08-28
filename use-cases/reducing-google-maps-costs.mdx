@@ -111,6 +111,7 @@ Do all of the above first. Re-measure. Present *that* number to finance. You wil
 | Remaining spend — the migration target | Derived |
 | Projected HERE cost at same call volume | Modelled under both pricing models |
 | Migration engineering cost | Estimated honestly |
+| Which Google SKU your truck traffic lands on | Console — LVR does not bill at Essentials |
 | Payback period | Derived |
 
 Teams migrating at production volume typically see meaningful savings, with geocoding-heavy workloads showing the largest gap. Those figures assume the call pattern is already sane.
@@ -125,7 +126,7 @@ Not everywhere. Three places:
 
 **Batch geocoding at volume.** Cheaper per record, and the workload is usually enormous.
 
-**Truck routing.** This is not a cost argument at all — Google offers no equivalent depth of physical vehicle constraints. If you route commercial vehicles, the argument is capability. See [Truck Routing](/guides/truck-routing).
+**Truck routing — and this became a cost argument in August 2026.** On HERE a truck route bills as a routing request: same rate, same free allowance as a car route. Google's Large Vehicle Routing requires the traffic-aware optimal routing preference, which bills above its Essentials rate. Describing your vehicle now costs more per call on Google and nothing extra on HERE. It remains a capability argument as well — toll cost, speed limits and coverage beyond the contiguous 48 are documented gaps — but the meter difference is real and belongs in the model above.
 
 **Contractual price stability** matters to teams who lived through vendor repricing. HERE pricing through a Gold Partner is contractual and does not reprice mid-term.
 

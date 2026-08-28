@@ -10,14 +10,12 @@ description: "Yes, in one specific way — and it's the way migrations fail. Des
 ## The failure
 
 <Warning>
-An interface derived from Google has no field for vehicle height. Or `access` point. Or per-field confidence.
+An interface derived from Google before August 2026 has no field for vehicle height at all. One derived from Google's Large Vehicle Routing has height, weight and axle count — and still no field for weight per axle group, ADR tunnel category, or toll cost.
 
-When you later add HERE, that data **has nowhere to live and gets silently dropped.**
-
-This is the most common structural error in Google-to-HERE migrations.
+Either way, when you later add HERE, that data **has nowhere to live and gets silently dropped.** The second case is worse, because the interface looks complete.
 </Warning>
 
-If your Google implementation had no notion of a vehicle's physical dimensions — because Google could not express them — an interface abstracted from it has no field for one.
+If your Google implementation had no notion of a vehicle's physical dimensions, an interface abstracted from it has no field for one. If it has a partial notion — dimensions and gross weight, but not axle groups — the missing fields are precisely the ones that determine legality in the jurisdictions that regulate most tightly.
 
 The route still returns `200`. The truck still gets dispatched.
 

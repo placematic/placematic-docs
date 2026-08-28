@@ -17,6 +17,7 @@ Migrate one surface. Stabilize. Then the next.
 | Telematics reverse geocoding | Low | Backend, high volume, no user-facing risk |
 | Matrix operations | Medium | Flat row-major arrays. Async job lifecycle |
 | Routing | Medium–high | Quality validation required, not just cost |
+| Truck routing | Medium–high | New surface since Aug 2026. Unit conversion plus constraint-tail mapping |
 | Autocomplete | Medium | User-facing. Be honest about quality |
 | Rendering | High | Most visible. Tile aesthetics differ. Migrate last |
 | Mobile SDK | High | Separate entitlement. Binary size. Offline strategy |
@@ -44,6 +45,8 @@ Re-measure. A meaningful share of teams find the bill halves without a vendor ch
 **`200` is not success.** HERE returns HTTP `200` with an empty `routes` array and a `notice` when no path exists.
 
 **`403` ≠ `401`.** Valid key, missing entitlement. Never retry.
+
+**Vehicle units differ.** HERE's `vehicle[height]` is centimetres. Google's large vehicle fields are named in millimetres — `totalHeightMm`. A factor-of-ten error produces either a vehicle that routes nowhere or a 41-centimetre vehicle that routes everywhere and returns `200`. Convert at the adapter, assert the converted value in a test.
 
 **Matrix results are flat, row-major.** Index wrong and you get a silently transposed matrix — plausible times, wrong assignments, nothing throws.
 

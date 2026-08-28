@@ -23,7 +23,7 @@ You have decided — or been asked — to evaluate leaving Google Maps Platform.
 
 Two or more of these should be true:
 
-- **You route commercial vehicles** and are currently using car routing. This alone is often sufficient. Google offers no equivalent depth of physical constraints. See [Truck Routing](/guides/truck-routing).
+- **You route commercial vehicles outside the contiguous United States, under axle-group weight regulation, or with toll cost in the dispatch decision.** Google added Large Vehicle Routing in August 2026 for the contiguous 48, so "Google can't do trucks" is no longer the argument. Coverage, toll cost, offline guidance and the constraint tail are.
 - **Monthly spend is five figures or more**, dominated by routing or geocoding.
 - **You compute large distance matrices** with sequential calls. See [Matrix Routing](/guides/matrix-routing).
 - **Price volatility is a board-level concern.** HERE pricing through a Gold Partner is contractual and does not reprice mid-term.
@@ -76,6 +76,8 @@ Never migrate two systems simultaneously. Two independent changes, one productio
 
 **4. Routing.** Now user-visible. Requires quality validation, not just cost validation. See [Routing](/guides/routing).
 
+**4b. Truck routing, if you were on Google's Large Vehicle Routing.** A separate surface with its own defect class. Map `totalHeightMm` to `vehicle[height]` in centimetres, `travelMode=TRUCK` + `routeModifiers.vehicleInfo` to `transportMode=truck` + `vehicle[...]`, and re-map the hazardous goods taxonomy deliberately. Constraints Google could not express — weight per axle group, ADR tunnel category — have to be sourced from your fleet register, not inferred from the old request payload.
+
 **5. Real-time geocoding and autocomplete.** User-facing. Be honest about whether HERE's suggestions serve your users as well.
 
 **6. Rendering.** Last. Most visible. Tile aesthetics differ. See [Maps](/guides/maps).
@@ -107,6 +109,8 @@ Move to HERE:
 **`200` is not success.** HERE returns `200` with an empty `routes` array and a `notice` containing `routeCalculationFailed` when no path exists. Checking `resp.ok` swallows the failure. See [Routing](/guides/routing).
 
 **`403` is not `401`.** `401` means a bad key. `403` means a valid key without entitlement for that API. Retrying `403` is permanently futile and generates support tickets. See [Authentication](/getting-started/authentication).
+
+**Vehicle units differ by a factor of ten.** HERE's `vehicle[height]` is centimetres. Google's large vehicle fields are millimetres — `totalHeightMm`. Convert at the adapter and assert the converted value in a test, not the input. A 41-centimetre truck routes everywhere and returns `200`.
 
 **Truck mode requires explicit dimensions.** `transportMode=truck` selects the engine. It does not describe your vehicle. Height in centimetres, `grossWeight` in kilograms. Omitting them returns a route no truck can drive, with no warning.
 
@@ -185,7 +189,7 @@ Write the rollback procedure before the cutover, and test it. A migration you ca
     The first surface to migrate, and the largest saving.
   </Card>
   <Card title="Truck Routing" href="/guides/truck-routing">
-    The capability argument, which is stronger than the cost argument.
+    Constraints, units, and the trap geometry that proves they apply.
   </Card>
 </CardGroup>
 

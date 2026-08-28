@@ -173,9 +173,9 @@ For matrices of hazmat-constrained travel times, [Matrix Routing](/guides/matrix
 
 ## Alternatives and trade-offs
 
-**Google Maps Platform** offers no hazmat routing capability. This is not a close comparison. If you route placarded vehicles, it is not a candidate.
+**Google Maps Platform** added hazardous goods classification to Large Vehicle Routing in August 2026, for the 48 contiguous United States. Its documentation lists routing for radioactive materials as unsupported, and it disclaims reliance — the response can flag that restrictions were partially ignored, and drivers are told not to rely solely on the route being safe or legal. For a US domestic placarded haul outside class 7, it is now a candidate worth evaluating. For radioactive cargo, cross-border movement, or any operation where the route is the compliance artifact, the disclaimer alone should decide it. Verify the class mapping against Google's current reference rather than assuming parity with HERE's eleven cargo types.
 
-**Mapbox** does not express hazmat constraints. Same conclusion.
+**Mapbox** does not express hazmat constraints.
 
 **TomTom** supports ADR HazMat classes with a narrower constraint set than HERE and lower waypoint limits. Competitive in European automotive contexts. Verify current capability and pricing independently.
 

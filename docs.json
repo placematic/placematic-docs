@@ -57,6 +57,7 @@
             "pages": [
               "guides/routing",
               "guides/truck-routing",
+              "guides/toll-cost",
               "guides/fuel-prices",
               "guides/ev-routing",
               "guides/matrix-routing",

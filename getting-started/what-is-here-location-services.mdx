@@ -46,7 +46,7 @@ There is also Positioning (hybrid GPS/Wi-Fi/cellular), Traffic Analytics, and a 
 
 Use HERE when at least one of these is true:
 
-- **You route commercial vehicles.** Trucks, vans over 3.5t, hazmat, oversized loads. This is the strongest case and it isn't close.
+- **You route commercial vehicles beyond the contiguous United States, under axle-group weight regulation, or with toll cost in the dispatch decision.** Trucks, vans over 3.5t, hazmat, oversized loads. Google added a truck profile for the contiguous 48 in August 2026; the constraint tail and the coverage boundary are where the platforms still diverge.
 - **You call geocoding or routing at production volume.** The unit economics diverge sharply from Google above roughly 100k calls/month. Geocoding-heavy workloads see the largest gap.
 - **You need large origin-destination matrices.** Depot-to-stop optimization across a real fleet, computed in one call rather than N×M sequential requests.
 - **You need contractual price stability.** HERE contracts through a partner do not reprice mid-term.
@@ -84,7 +84,7 @@ curl "https://router.hereapi.com/v8/routes" \
   --data-urlencode "destination=41.5250,-88.0817" \
   --data-urlencode "vehicle[height]=410" \
   --data-urlencode "vehicle[grossWeight]=35000" \
-  --data-urlencode "truck[axleCount]=5" \
+  --data-urlencode "vehicle[axleCount]=5" \
   --data-urlencode "return=summary,polyline"
 ```
 

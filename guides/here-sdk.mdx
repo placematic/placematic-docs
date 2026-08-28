@@ -28,6 +28,7 @@ The SDK exists because some things must run on the device: turn-by-turn guidance
 - **On-device rendering** with tight performance requirements
 - **On-device route recalculation** when a driver deviates
 - **Continuous position updates** at a cadence unsuited to network calls
+- **Offline turn-by-turn for commercial vehicles has no equivalent on Google Maps Platform.** Google's Navigation SDK supports large vehicle routes via a route token issued by the Routes API, and it operates online. If your driver app has to guide a constrained vehicle through forty miles without signal, this is not a preference between platforms — it is the only one that does it.
 
 ## When NOT to use it
 
@@ -51,7 +52,7 @@ Ask yourself: does this app need to work with the network off? If no, you probab
 
 **Binary size is a real cost.** The SDK adds meaningfully to your app. On Android, this affects install conversion. Measure it before you commit.
 
-**Truck routing constraints apply on-device.** Height, `grossWeight`, `axleCount` — the same parameters as [Truck Routing](/guides/truck-routing). An on-device route computed without them is exactly as undrivable as a REST route computed without them, and now it is guiding a driver in real time.
+**Truck routing constraints apply on-device.** `height`, `grossWeight`, `axleCount`, `weightPerAxleGroup`, `tunnelCategory` — the same parameters as [Truck Routing](/guides/truck-routing). An on-device route computed without them is exactly as undrivable as a REST route computed without them, and now it is guiding a driver in real time.
 
 **Credentials are embedded in the binary.** Binaries are trivially decompiled. This is a security consideration, not a hypothetical. See [Authentication](/getting-started/authentication).
 

@@ -21,7 +21,7 @@ Model migration engineering cost against projected savings before you present a 
 
 ## Where does HERE genuinely win?
 
-**Commercial vehicle routing.** This is not a close comparison. Truck constraints — height, gross weight, axle count, trailer count, tunnel category, hazmat class — are first-class routing inputs, not post-hoc filters. Google Maps Platform does not offer equivalent depth for commercial vehicles.
+**Commercial vehicle routing depth and coverage.** Truck constraints — height, gross weight, axle count, weight per axle group, trailer count, tunnel category, hazmat class — are first-class routing inputs in 200+ countries. Google added Large Vehicle Routing in August 2026 with dimensions, gross weight, axle count and hazmat classes, for the 48 contiguous US states. What its documentation lists as unsupported: truck toll prices, speed limits, radioactive cargo. There is no offline navigation. The gap is now the constraint tail and the coverage boundary, not the existence of a truck profile.
 
 **Large origin-destination matrices.** HERE handles large matrices in a single call. Depot-to-stop optimization across a real fleet is one request, not a nested loop.
 
@@ -55,7 +55,9 @@ Any comparison that omits this section is marketing.
 
 | | HERE | Google Maps Platform |
 |---|---|---|
-| **Truck routing** | Physical constraints as first-class inputs | No equivalent depth |
+| **Truck routing** | Full profile, 200+ countries | Since Aug 2026, 48 contiguous US states |
+| **Truck toll cost** | Toll Cost via Routing v8 | Not supported |
+| **Offline truck navigation** | HERE SDK Navigate Edition | Not available |
 | **Large matrices** | Single-call, large origin/destination sets | Smaller ceilings; more calls |
 | **POI / business data** | Adequate | Best in class |
 | **Consumer autocomplete** | Adequate for addresses | Best in class |
@@ -148,7 +150,7 @@ Usually not. Routing and batch geocoding to HERE, consumer place search stays on
 TomTom is competitive in automotive and European markets, with narrower truck constraints and smaller matrix ceilings. Mapbox is strong on styling, weak on commercial vehicle depth. OSRM is free and yours to operate — which means truck attributes, traffic, and map freshness are also yours to operate.
 
 **Does Google offer truck routing?**
-Not with comparable constraint depth. If you route commercial vehicles, this is the decision.
+Yes, since August 2026 — Large Vehicle Routing, in the 48 contiguous United States, with dimensions, gross weight, axle count and hazmat classes. Its documentation lists truck toll prices, speed limits and radioactive cargo as unsupported, and there is no offline navigation. Three questions decide it: do your lanes leave the contiguous 48, do you need toll cost before dispatch, does your driver app work offline. A yes to any one of them settles it.
 
 **Will HERE reprice on me?**
 Contracted pricing through a Gold Partner does not reprice mid-term.
@@ -163,7 +165,7 @@ Contracted pricing through a Gold Partner does not reprice mid-term.
     Model your bill properly before you build the business case.
   </Card>
   <Card title="Truck Routing Guide" href="/guides/truck-routing">
-    The capability gap, in detail.
+    Constraints, units, and the trap geometry that proves they apply.
   </Card>
   <Card title="Choosing the Right HERE APIs" href="/getting-started/choosing-the-right-here-apis">
     Migrate to the correct API, not the closest-looking one.

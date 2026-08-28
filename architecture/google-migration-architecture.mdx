@@ -84,7 +84,11 @@ This is unglamorous and it is where most of the migration's engineering effort a
 **Explicit about the vehicle profile.** Height in centimetres, `grossWeight` in kilograms, `axleCount` including trailers. A facade that omits vehicle constraints because Google could not express them will silently drop them when HERE could.
 
 <Warning>
-The facade is where truck constraints get lost. If your Google implementation had no notion of vehicle height, an interface derived from it has no field for one. Design the interface from what HERE can express, not from what Google could.
+The facade is where truck constraints get lost, and August 2026 made this harder to catch, not easier.
+
+An interface derived from Google before Large Vehicle Routing had no field for vehicle height at all — obviously incomplete the moment you added HERE. An interface derived from Google's large vehicle profile has height, weight and axle count, and looks complete. The fields it cannot carry — weight per axle group, ADR tunnel category, toll cost — are exactly the ones that determine legality where regulation is tightest.
+
+Design the interface from the richer constraint set, and assert field-level parity in tests rather than trusting that a provider responded.
 </Warning>
 
 **Honest about capability gaps.** Some methods will throw `NotSupported` on one provider. That is information, not a design flaw.
@@ -197,7 +201,7 @@ Run both providers with the shadow path active for at least one full business cy
 
 **Migrating before optimizing.** You may be migrating waste.
 
-**Designing the facade from Google's capabilities.** Truck constraints have nowhere to live.
+**Designing the facade from the narrower constraint set.** The missing fields are silent, and since August 2026 the facade looks complete while missing them.
 
 **Comparing providers against each other** instead of against ground truth.
 

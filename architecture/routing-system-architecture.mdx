@@ -223,12 +223,14 @@ Be precise about this, because "multi-provider failover" is usually a slide, not
 
 **What does not fail over:**
 
-- **Truck routing.** A second provider does not have HERE's commercial vehicle constraints. Falling back to car routing produces a route a truck cannot drive. **This is worse than failing.**
+- **Truck routing.** A second provider does not carry HERE's full constraint set — and since August 2026 this got harder to notice, not easier. A fallback to car routing produces an obviously wrong route. A fallback to a partial truck profile produces a plausible one. If legality depends on axle-group weight, tunnel category, or a cargo class the fallback cannot express, the route looks correct, passes review, and is illegal. **The second case is worse than the first.**
 - **Tour Planning.** A second solver produces a different sequence. Mid-day, that is chaos.
 - **Route Matching.** Your audit artifact must cite one map release. Two providers, two answers.
 
 <Warning>
-Failing over truck routing to an unconstrained provider is the single most dangerous fallback in this domain. Refuse to route. A dispatcher calling operations is a better outcome than a driver following a route through a low bridge.
+Failing over truck routing to a provider with a narrower constraint set is the single most dangerous fallback in this domain — and a partially-constrained fallback is more dangerous than an unconstrained one, because it fails silently.
+
+Assert field-level parity in the facade, not merely that a provider responded. If the secondary cannot carry every constraint the primary was given, refuse to route. A dispatcher calling operations is a better outcome than a driver following a route through a low bridge.
 </Warning>
 
 **Degrade honestly.** Serve the last known good route with a staleness indicator. Queue the request. Tell the user. Do not silently substitute a worse answer.
@@ -311,7 +313,7 @@ The architecture *is* the cost model.
 
 **Treating `200` as success without checking `routes.length`.**
 
-**Failing over truck routing to an unconstrained provider.**
+**Failing over truck routing to a provider with a narrower constraint set.**
 
 **Circuit breakers that never reset.**
 
@@ -339,7 +341,7 @@ The architecture *is* the cost model.
 - [ ] Constraint set pushed to the driver device; recalculation path tested
 - [ ] Retry policy differentiated by status code; `403` never retried
 - [ ] `200` with empty `routes` handled as a legitimate outcome
-- [ ] No failover from constrained truck routing to an unconstrained provider
+- [ ] No failover from constrained truck routing to a provider that cannot carry every constraint; parity asserted per field, not per response
 - [ ] Circuit breakers reset
 - [ ] CDN in front of tiles; browser keys domain-restricted
 - [ ] Structured logs: endpoint, status, tenant, latency — never keys, never bodies

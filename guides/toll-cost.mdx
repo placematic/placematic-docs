@@ -1,0 +1,238 @@
+---
+title: "Toll Cost"
+description: "Calculating toll cost with HERE Routing v8 — why the number changes when you describe the vehicle, what it costs to request, and the dispatch decision that depends on it."
+---
+
+# Toll Cost
+
+**A toll figure is not a property of a road. It is a property of a road and a vehicle together.** Change the axle count and the number changes. Change the emission class and, in parts of Europe, it changes again.
+
+**The failure mode is not a missing number. It is a plausible number for a vehicle you did not describe** — one that returns `200`, passes review, gets quoted to a customer, and is discovered at settlement.
+
+Everything below is elaboration on those two sentences.
+
+## Short verdict
+
+**Use HERE Routing v8 with `return=tolls` when you need toll cost for a described commercial vehicle.** It supports `car`, `truck`, `taxi` and `bus`, and the vehicle profile you supply drives the price.
+
+**Google's large vehicle routing documentation lists truck toll prices among its unsupported features.** If your dispatch process needs a toll figure for a commercial vehicle, that is a capability you have to source elsewhere.
+
+## Requesting toll cost on HERE
+
+Toll cost is not a separate endpoint. It is a `return` value on `/v8/routes`.
+
+```bash
+curl -gX GET 'https://router.hereapi.com/v8/routes?'\
+'origin=41.8781,-87.6298&'\
+'destination=39.7684,-86.1581&'\
+'return=summary,tolls&'\
+'transportMode=truck&'\
+'vehicle[height]=410&'\
+'vehicle[width]=255&'\
+'vehicle[length]=1600&'\
+'vehicle[grossWeight]=36000&'\
+'vehicle[axleCount]=5&'\
+'currency=USD&'\
+'departureTime=2026-09-15T07:00:00-05:00&'\
+'apiKey=YOUR_API_KEY'
+```
+
+**Supported transport modes for tolls:** `car`, `truck`, `taxi`, `bus`.
+
+**`currency`** takes a three-letter code and converts prices from local currency. Without it you get local currency only, which on a multi-country route means several currencies in one response.
+
+**`departureTime`** matters more than it looks. Several toll systems price by time of passage, and the time is derived from the ETA — so a route computed with `departureTime=any` cannot price a time-of-day toll correctly.
+
+<Info>
+  Verified August 2026 against HERE's [toll cost for a route](https://docs.here.com/routing/docs/routing-v8-tolls-for-route) documentation. Field names and supported modes change; check the current reference before implementing.
+</Info>
+
+### From a GPS trace
+
+If you are starting from telematics data rather than an origin-destination pair, the route import service does not return tolls directly. It takes two calls:
+
+1. `POST /v8/import` with `return=routeHandle` and your trace points, which returns a `routeHandle`
+2. `GET /v8/routes/{routeHandle}` with `return=tolls`
+
+This is the path most ELD and telematics platforms actually need, because they are pricing routes that were already driven rather than planning ones that have not been. See [ELD Platform](/use-cases/eld-platform).
+
+## What comes back
+
+Tolls are returned per section, not per route. A route with three sections returns three toll arrays, and the trip total is your sum.
+
+```json
+{
+  "sections": [
+    {
+      "id": "700c42a0-a981-4817-a250-74037c7699ba",
+      "transport": { "mode": "truck" },
+      "tolls": [
+        {
+          "countryCode": "USA",
+          "tollSystemRef": 0,
+          "tollSystem": "TOLL SYSTEM NAME",
+          "fares": [
+            {
+              "id": "f37b1c4f-cbde-4ef7-9067-e4da106fd0a4",
+              "name": "TOLL SYSTEM NAME",
+              "price": {
+                "type": "value",
+                "currency": "USD",
+                "value": 55.00
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+Each toll carries a `tollSystem` name, a country code, and one or more `fares`. Each fare carries a `price` with a `currency` and a `value`, and where the system supports it, the payment method that produces that price.
+
+<Warning>
+  **Sum the sections. Do not read `tolls[0]`.**
+
+  A route crossing two toll authorities returns two toll objects. Reading the first one and calling it the trip cost produces a number that is internally consistent, roughly half right, and wrong in the same direction every single time.
+</Warning>
+
+## The vehicle profile determines the number
+
+This is the part that gets skipped, and it is the whole point of the endpoint.
+
+Send `transportMode=truck` with no vehicle dimensions and HERE will price the route. It will return a value, HTTP `200`, and no warning. That value reflects a vehicle you did not describe.
+
+On a single Illinois lane, tested with the same origin, destination and departure time:
+
+| Request | Toll returned |
+| --------- | --------------- |
+| `transportMode=truck`, no vehicle profile | **$20.70** |
+| `transportMode=truck`, full profile — height, width, length, gross weight, 5 axles | **$55.00** |
+
+**A 166% difference on one lane, with no error, no notice, and no indication that the first number describes a different vehicle.**
+
+<Info>
+  At 500 runs a year — roughly two a working day for a single tractor on a fixed lane — that gap is about $17,000 of unbilled toll on one truck.
+
+  Assumptions stated so you can substitute your own: one lane, one vehicle configuration, 500 annual runs, no toll pass discount applied. Run your own lane at [Truck Route Comparison](https://placematic.com/tools/truck-route-comparison/) rather than adopting ours.
+</Info>
+
+**Parameters that change the price**, beyond the physical profile:
+
+* `vehicle[axleCount]` — the primary driver of commercial toll class in the United States
+* `vehicle[grossWeight]` and dimensions — weight and height bands in most European systems
+* `vehicle[hovOccupancy]` — occupancy-based pricing where it exists
+* `tolls[emissionType]` — emission class, and in Germany the CO2 class
+
+### Emission class has a silent default
+
+HERE accepts `tolls[emissionType]` in the form `EmissionType[;co2class=N]`, with emission values `euro1` through `euro6` plus `euroEev`, and `co2class` values `1` through `5`.
+
+<Warning>
+  **When `co2class` is not specified, it defaults to `1`.** HERE's documentation also notes that an invalid combination of emission type and CO2 class may produce unexpected tolls.
+
+  For German operations this is a real money difference and the default is not neutral. Set it explicitly from your fleet register; do not let it fall through.
+</Warning>
+
+## Billing
+
+Toll data is not a free rider on a route you were computing anyway.
+
+HERE documents that requesting toll cost information for a route **counts as an additional transaction**. Budget it as its own line, and cache it — toll prices for a fixed lane and vehicle configuration are stable for far longer than the ETA on the same route.
+
+<Tip>
+  Cache toll cost keyed on lane plus vehicle configuration plus toll pass set, not on the full route request. Two dispatches of the same tractor on the same lane an hour apart have different ETAs and identical tolls.
+
+  For a fleet running fixed lanes, this is usually the difference between toll cost being a rounding error on the bill and being a line item someone asks about.
+</Tip>
+
+## What toll cost is not
+
+<Warning>
+  **HERE documents toll prices as provided on a best-effort basis**, because toll systems are numerous, locally administered, and change without a versioned API.
+
+  This is a planning and quoting figure. It is not a settlement figure, and HERE does not represent it as one. If your product reconciles against actual toll invoices, the API number is the expectation, not the truth, and your reconciliation logic needs to survive a discrepancy without treating it as a defect.
+</Warning>
+
+It is also not a routing preference. Getting the toll cost of a route and getting the cheapest route are different operations. `return=tolls` prices the route the router chose. If you want the router to trade distance against toll, that is a cost-optimization problem — see [Choosing Routing vs Matrix](/architecture/choosing-routing-vs-matrix) and evaluate whether the saving justifies the additional calls.
+
+And dynamic pricing is out of scope. HERE returns no toll information for HOT lanes, because the price is dynamic.
+
+## Common mistakes
+
+**Requesting tolls without describing the vehicle.** Returns `200` and a number for a vehicle you did not specify. On the lane above, that number was 166% low.
+
+**Reading `tolls[0]` instead of summing sections.** Consistently wrong on any multi-jurisdiction route, and never wrong enough to look broken.
+
+**Leaving `co2class` unset in Germany.** It defaults to `1`. That is a price, not an absence of one.
+
+**Using `departureTime=any` on a time-priced toll system.** No ETA means no time of passage means no correct price.
+
+**Treating the API figure as a settlement number.** Best-effort by documentation. Build reconciliation that tolerates a delta.
+
+**Not caching.** Tolls are stable where ETAs are not, and the request is billed as an additional transaction.
+
+**Assuming a currency.** Without `currency`, a cross-border route returns several local currencies in one response, and summing them is a type error your language will happily let you commit.
+
+**Planning a commercial vehicle dispatch on a platform that does not price commercial tolls.** Google's large vehicle routing documentation lists truck toll prices as unsupported. Confirm the capability exists before the toll figure becomes load-bearing in a quoting workflow.
+
+## How to verify on your own lanes
+
+**One.** Pick five lanes your fleet actually runs, with real toll invoices for them.
+
+**Two.** Request each lane twice on HERE — once with `transportMode=truck` and no vehicle profile, once with your full profile including `axleCount`. Record both numbers. The gap between them is the size of the error you would ship by omitting the profile.
+
+**Three.** Compare the full-profile figure against the invoice. You are testing whether best-effort is close enough for your quoting margin, not whether it is exact.
+
+**Four.** Repeat with a toll pass specified and without one. In several US systems the pass price and the cash price differ enough to matter at fleet scale.
+
+**Five.** Put the profiled figure next to whatever your current dispatch process assumes. If your quoting spreadsheet carries a flat per-mile toll allowance, that comparison is usually the shortest route to a decision.
+
+## Related documentation
+
+<CardGroup cols={2}>
+  <Card title="Truck Routing" href="/guides/truck-routing">
+    Constraints, units, and the trap geometry that proves they apply.
+  </Card>
+
+  <Card title="HERE Routing vs Google Maps" href="/comparisons/here-routing-vs-google-maps">
+    Google Large Vehicle Routing versus HERE truck routing, constraint by constraint.
+  </Card>
+
+  <Card title="ELD Platform" href="/use-cases/eld-platform">
+    Pricing routes that were driven, not planned. Route handles and traces.
+  </Card>
+
+  <Card title="Cost Optimization Patterns" href="/architecture/cost-optimization-patterns">
+    What to cache, and why toll cost caches better than anything else here.
+  </Card>
+</CardGroup>
+
+Also: [Fleet Routing](/use-cases/fleet-routing) · [Hazmat Routing](/use-cases/hazmat-routing) · [Reducing Google Maps Costs](/use-cases/reducing-google-maps-costs)
+
+## Sources
+
+**HERE**
+
+* [Get toll cost information for route](https://docs.here.com/routing/docs/routing-v8-tolls-for-route) — `return=tolls`, supported modes, currency conversion, best-effort statement
+* [Get toll cost with route import service](https://docs.here.com/routing/docs/routing-v8-tolls-routeimport) — route handle flow for GPS traces
+* [Get toll cost for multi-section route](https://docs.here.com/routing/docs/routing-v8-tolls-multileg) — per-section toll arrays
+* [Toll calculation with emission type and CO2 class](https://www.here.com/learn/blog/toll-emission-co2-germany) — `tolls[emissionType]`, `co2class` default
+* [Routing API v8 developer guide](https://www.here.com/docs/bundle/routing-api-developer-guide-v8/page/get-started.html)
+
+**Google**
+
+* [Large vehicle routing overview](https://developers.google.com/maps/documentation/routes/lvr) — truck toll prices listed among unsupported features
+
+**Placematic**
+
+* [Truck Route Comparison](https://placematic.com/tools/truck-route-comparison/) — run the profiled and unprofiled request on your own lane
+
+*HERE toll documentation verified August 2026. Google large vehicle routing limitations verified August 2026. The Illinois lane figures are Placematic's own measurement on a single lane and vehicle configuration, stated with assumptions above; they are illustrative of the mechanism, not a benchmark. Toll systems, coverage and pricing change; verify against primary sources.*
+
+***
+
+Need to know what your lanes actually cost?
+
+Placematic can run profiled and unprofiled toll calculations across your real lane set and reconcile the output against your invoices. Placematic is an official HERE Technologies reseller and implementation partner. [Cost Reduction Audit](https://placematic.com/here-location-services/cost-reduction-audit/).

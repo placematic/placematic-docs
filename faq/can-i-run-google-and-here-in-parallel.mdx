@@ -35,7 +35,7 @@ Nothing requires vendor monogamy, and the split follows the strengths cleanly.
 
 **Why:** Google's business POI database — hours, reviews, photos, categories — is categorically better than HERE's. Placematic sells HERE. We'd rather you know now than after a migration.
 
-**Why:** HERE expresses commercial vehicle constraints that Google does not, and does not expose the underlying road attributes either. You cannot implement them yourself.
+**Why:** HERE expresses the commercial vehicle constraints Google's Large Vehicle Routing does not — weight per axle group, ADR tunnel category, radioactive cargo — and covers 200+ countries against Google's 48 contiguous states. It also returns toll cost for the described vehicle, which Google documents as unsupported.
 
 **Document the split as a decision**, in writing, before someone frames a deliberate hybrid as a failed migration.
 
@@ -48,11 +48,11 @@ Real overhead. For a small team it may exceed the benefit. For a fleet platform 
 ## The one thing you must not do
 
 <Warning>
-**Never fail over from constrained HERE truck routing to unconstrained Google routing.**
+**Never fail over from HERE truck routing to Google Large Vehicle Routing.**
 
-It produces a route a truck cannot drive, in a system that believes it degraded gracefully.
+This got more dangerous in August 2026, not less. An unconstrained fallback produced obviously wrong routes — a truck sent under a low bridge fails loudly. A partially-constrained fallback produces plausible ones. If legality depends on axle-group weight, tunnel category or a cargo class the fallback cannot express, the route looks correct, passes review, and is illegal.
 
-**Refuse to route instead.** A dispatcher calling operations is a better outcome than a driver following a route through a low bridge.
+**Refuse to route instead.** Assert field-level parity in the facade, not merely that a provider responded. A dispatcher calling operations is a better outcome than a driver following a route through a low bridge.
 </Warning>
 
 ## What genuinely fails over

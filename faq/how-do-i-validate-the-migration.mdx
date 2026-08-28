@@ -72,6 +72,8 @@ Run the same three in `car` mode as a control. All three must route — proving 
 
 **Keep these assertions in CI permanently**, not just during migration. A refactor that drops `vehicle[height]` is invisible in code review.
 
+Run the gate against both platforms. Since August 2026 both can pass it, and passing it does not mean the constraint sets are equivalent — it means neither will send a tall vehicle under a low bridge. Toll cost, axle-group weight and coverage are separate questions the trap geometry does not ask.
+
 ## Test the rollback
 
 <Warning>
